@@ -1,0 +1,847 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>小红书卡片生成器 v2 · 关键词直出</title>
+<link rel="stylesheet" id="fa-css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+<script>
+  // FontAwesome 失败时回退到国内镜像
+  document.getElementById('fa-css').addEventListener('error', function () {
+    this.href = 'https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css';
+  });
+</script>
+<style>
+  :root {
+    --bg: #101318; --panel: #1a2028; --panel-2: #222a34; --border: #2b3440;
+    --text: #e8eaed; --text-2: #9aa4b2; --accent: #FF5500; --accent-2: #ff7a33;
+    --ok: #3fb27f; --warn: #e0a53d; --err: #e05c5c;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    flex-shrink: 0; display: flex; align-items: center; gap: 12px;
+    padding: 12px 20px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  header .logo { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, #FF5500, #FF3300); display: flex; align-items: center; justify-content: center; color: #fff; font-weight: 900; font-size: 18px; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 700; }
+  header .sub { font-size: 12px; color: var(--text-2); margin-left: 2px; }
+  header .spacer { flex: 1; }
+  .badge { font-size: 11px; padding: 3px 10px; border-radius: 20px; border: 1px solid var(--border); color: var(--text-2); }
+  .badge.ok { color: var(--ok); border-color: rgba(63,178,127,.4); }
+  .badge.warn { color: var(--warn); border-color: rgba(224,165,61,.4); }
+
+  main { flex: 1; display: flex; min-height: 0; }
+
+  /* ---------- 左侧面板 ---------- */
+  #sidebar {
+    width: 400px; flex-shrink: 0; background: var(--panel); border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 18px 16px 28px; display: flex; flex-direction: column; gap: 16px;
+  }
+  #sidebar::-webkit-scrollbar, .scroll::-webkit-scrollbar { width: 6px; }
+  #sidebar::-webkit-scrollbar-thumb, .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  .section { display: flex; flex-direction: column; gap: 8px; }
+  .section-title { font-size: 12px; color: var(--text-2); font-weight: 600; letter-spacing: .5px; display: flex; align-items: center; gap: 6px; }
+  .section-title i { color: var(--accent); }
+
+  .tabs { display: flex; background: var(--panel-2); border-radius: 10px; padding: 4px; gap: 4px; }
+  .tabs button {
+    flex: 1; border: none; background: transparent; color: var(--text-2); font-size: 13px;
+    padding: 8px 0; border-radius: 7px; cursor: pointer; transition: .15s; font-weight: 600;
+  }
+  .tabs button.active { background: var(--accent); color: #fff; }
+
+  label { font-size: 12px; color: var(--text-2); display: block; margin: 2px 0 4px; }
+  input[type=text], input[type=password], textarea, select {
+    width: 100%; background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 9px 12px; font-size: 13px; font-family: inherit; outline: none; transition: .15s;
+  }
+  input:focus, textarea:focus, select:focus { border-color: var(--accent); }
+  textarea { resize: vertical; min-height: 70px; line-height: 1.6; }
+  textarea.big { min-height: 150px; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .hint { font-size: 11px; color: var(--text-2); line-height: 1.5; margin-top: 2px; }
+  .hint i { margin-right: 3px; }
+
+  .btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+    border: 1px solid var(--border); background: var(--panel-2); color: var(--text);
+    padding: 10px 16px; border-radius: 9px; font-size: 13px; font-weight: 600; cursor: pointer; transition: .15s;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent-2); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.primary { background: linear-gradient(135deg, #FF5500, #FF3300); border: none; color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); color: #fff; }
+  .btn.ghost { background: transparent; }
+  .btn.sm { padding: 6px 12px; font-size: 12px; border-radius: 7px; }
+
+  /* 流水线进度 */
+  #pipeline { display: none; flex-direction: column; gap: 8px; padding: 12px; background: var(--panel-2); border-radius: 10px; }
+  #pipeline.visible { display: flex; }
+  .stage { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--text-2); }
+  .stage .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); flex-shrink: 0; }
+  .stage.active { color: var(--text); }
+  .stage.active .dot { background: var(--accent); animation: pulse 1s infinite; }
+  .stage.done { color: var(--text); }
+  .stage.done .dot { background: var(--ok); }
+  .stage.err .dot { background: var(--err); }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  #briefBox { display: none; }
+  #briefBox.visible { display: block; }
+  details.brief { background: var(--panel-2); border-radius: 10px; padding: 10px 12px; font-size: 12px; }
+  details.brief summary { cursor: pointer; color: var(--text-2); font-weight: 600; }
+  details.brief pre { white-space: pre-wrap; word-break: break-all; color: var(--text-2); line-height: 1.6; max-height: 180px; overflow-y: auto; margin: 8px 0 0; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+
+  #toast { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); z-index: 999; display: none; }
+  .toast-item {
+    background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+    padding: 10px 18px; border-radius: 10px; font-size: 13px; box-shadow: 0 8px 30px rgba(0,0,0,.35);
+    margin-bottom: 8px; display: flex; gap: 8px; align-items: center; max-width: 640px;
+  }
+  .toast-item.err { border-color: var(--err); }
+  .toast-item.err i { color: var(--err); }
+  .toast-item.ok i { color: var(--ok); }
+
+  /* ---------- 右侧预览 ---------- */
+  #mainCol { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #toolbar {
+    flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 12px 16px;
+    background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap;
+  }
+  #toolbar .meta { font-size: 12px; color: var(--text-2); margin-right: 4px; }
+  #toolbar .spacer { flex: 1; }
+  #stats { font-size: 12px; color: var(--text-2); display: flex; gap: 14px; align-items: center; }
+  #stats .num { color: var(--accent-2); font-weight: 700; }
+
+  #stageWrap { flex: 1; min-height: 0; position: relative; background: radial-gradient(ellipse at 50% 0%, #161b23 0%, #101318 70%); }
+  #previewArea {
+    height: 100%; display: flex; flex-direction: row; gap: 40px; padding: 0 46vw;
+    overflow-x: auto; overflow-y: hidden; align-items: center;
+    scroll-snap-type: x mandatory; scroll-padding: 46vw;
+  }
+  #previewArea::-webkit-scrollbar { height: 8px; }
+  #previewArea::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+  #emptyState {
+    position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; color: var(--text-2);
+  }
+  #emptyState .icon { font-size: 46px; opacity: .4; }
+  #emptyState p { font-size: 14px; margin: 0; line-height: 1.7; text-align: center; }
+  #emptyState .demo-btn { margin-top: 6px; }
+
+  .card-slot { position: relative; flex-shrink: 0; scroll-snap-align: center; }
+  .card-badge {
+    position: absolute; top: -26px; right: 0; font-size: 11px; color: var(--text-2);
+    background: var(--panel-2); padding: 3px 10px; border-radius: 12px; border: 1px solid var(--border);
+    z-index: 5; white-space: nowrap;
+  }
+  .card-badge.over { color: var(--warn); border-color: rgba(224,165,61,.5); }
+
+  /* 大图预览 Modal */
+  #modal { position: fixed; inset: 0; background: rgba(5,8,12,.82); z-index: 500; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px; }
+  #modal.open { display: flex; }
+  #modal .viewer { width: 640px; height: 856px; background: #FBF9F6; border-radius: 14px; overflow: hidden; position: relative; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  #modal .viewer .xhs-card { transform-origin: top left; transform: scale(0.515); }
+  #modal .actions { display: flex; gap: 10px; }
+
+  /* JSON 编辑器 Modal */
+  #jsonModal { position: fixed; inset: 0; background: rgba(5,8,12,.82); z-index: 500; display: none; align-items: center; justify-content: center; }
+  #jsonModal.open { display: flex; }
+  .modal-panel { width: min(860px, 92vw); background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+  .modal-panel h3 { margin: 0; font-size: 15px; }
+  .modal-panel textarea { min-height: 380px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.55; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+
+  .kbd { font-size: 11px; background: var(--panel-2); border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; padding: 1px 6px; color: var(--text-2); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">é</div>
+  <div>
+    <h1>小红书卡片生成器 <span class="sub">v2 · 关键词直出</span></h1>
+  </div>
+  <span class="badge" id="connBadge"><i class="fas fa-circle"></i> 直连模式</span>
+  <span class="badge ok" id="modeBadge"><i class="fas fa-magic"></i> 关键词模式</span>
+  <span class="spacer"></span>
+  <span class="badge" id="stateBadge">就绪</span>
+</header>
+
+<main>
+  <!-- ============ 左侧：配置与输入 ============ -->
+  <aside id="sidebar">
+
+    <div class="section">
+      <div class="section-title"><i class="fas fa-tachometer-alt"></i> 模式</div>
+      <div class="tabs" id="modeTabs">
+        <button class="active" data-mode="keyword"><i class="fas fa-magic"></i> 关键词直出</button>
+        <button data-mode="article"><i class="fas fa-file-alt"></i> 文章模式</button>
+      </div>
+      <div class="hint"><i class="fas fa-info-circle"></i> 关键词直出：只输入概念/术语/主题，自动完成「调研 → 结构化 → 排版」。</div>
+    </div>
+
+    <!-- 关键词模式输入 -->
+    <div class="section" id="kwPanel">
+      <label>主题 / 概念名（如：魔弹论、私域运营、顺德美食节）</label>
+      <input type="text" id="kwInput" placeholder="输入一个关键词或概念名词">
+      <label>补充说明（可选：目标受众 / 行业 / 想突出的角度）</label>
+      <textarea id="kwExtra" placeholder="例如：面向本地餐饮商家老板，讲清概念并给出可落地的启示"></textarea>
+    </div>
+
+    <!-- 文章模式输入 -->
+    <div class="section" id="artPanel" style="display:none">
+      <label>粘贴完整文章 / 素材（原有工作流，一步直出卡片）</label>
+      <textarea id="artInput" class="big" placeholder="粘贴文章正文…"></textarea>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><i class="fas fa-sliders-h"></i> 内容参数</div>
+      <div class="row">
+        <div><label>品牌名（左下角）</label><input type="text" id="brandInput" value="écho"></div>
+        <div><label>页数</label>
+          <select id="pageRange">
+            <option value="4-6">4-6 页（精炼）</option>
+            <option value="5-8" selected>5-8 页（标准）</option>
+            <option value="8-12">8-12 页（深度）</option>
+          </select>
+        </div>
+      </div>
+      <div class="row">
+        <div><label>总字数</label>
+          <select id="totalRange">
+            <option value="1000-1300">1000-1300 字</option>
+            <option value="1300-1700" selected>1300-1700 字（推荐）</option>
+            <option value="1700-2000">1700-2000 字</option>
+          </select>
+        </div>
+        <div><label>调性</label>
+          <select id="toneSel">
+            <option value="专业克制" selected>专业克制（écho 原味）</option>
+            <option value="轻松易懂">轻松易懂</option>
+            <option value="极简商务">极简商务</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-title"><i class="fas fa-key"></i> AI 接口配置 <span class="hint" style="margin-left:auto">密钥仅存本机浏览器</span></div>
+      <div class="row">
+        <div><label>服务商</label>
+          <select id="providerSel">
+            <option value="deepseek" selected>DeepSeek（推荐）</option>
+            <option value="openai">OpenAI</option>
+            <option value="custom">自定义（OpenAI 兼容）</option>
+          </select>
+        </div>
+        <div><label>模型</label><input type="text" id="modelInput" value="deepseek-chat"></div>
+      </div>
+      <label>Base URL</label>
+      <input type="text" id="baseUrlInput" value="https://api.deepseek.com/v1">
+      <label>API Key</label>
+      <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
+      <div class="hint"><i class="fas fa-shield-alt"></i> DeepSeek Key 在 platform.deepseek.com 获取。若浏览器直连被跨域拦截，请用 <span class="kbd">python3 server.py</span> 启动本地服务（自带代理）。</div>
+      <div class="row" style="margin-top:4px">
+        <button class="btn primary" id="genBtn"><i class="fas fa-wand-magic-sparkles"></i> 一键生成</button>
+        <button class="btn" id="demoBtn"><i class="fas fa-flask"></i> 加载示例</button>
+      </div>
+    </div>
+
+    <!-- 流水线进度 -->
+    <div id="pipeline">
+      <div class="stage" data-stage="research"><span class="dot"></span>① 调研：收集主题关键信息</div>
+      <div class="stage" data-stage="organize"><span class="dot"></span>② 结构化：组织卡片内容</div>
+      <div class="stage" data-stage="render"><span class="dot"></span>③ 排版：渲染 écho 卡片</div>
+    </div>
+
+    <!-- 调研简报（可展开） -->
+    <div id="briefBox">
+      <details class="brief">
+        <summary><i class="fas fa-book-open"></i> 查看调研简报（AI 收集的关键信息）</summary>
+        <pre id="briefPre"></pre>
+      </details>
+    </div>
+  </aside>
+
+  <!-- ============ 右侧：预览 ============ -->
+  <section id="mainCol">
+    <div id="toolbar">
+      <span class="meta"><i class="fas fa-file-image"></i> 预览区</span>
+      <span id="stats">
+        <span>页数 <span class="num" id="stPages">-</span></span>
+        <span>总字数 <span class="num" id="stChars">-</span></span>
+        <span id="stWarn" style="display:none;color:var(--warn)"></span>
+      </span>
+      <span class="spacer"></span>
+      <button class="btn sm" id="editJsonBtn" disabled><i class="fas fa-code"></i> 编辑 JSON</button>
+      <button class="btn sm" id="copyJsonBtn" disabled><i class="fas fa-copy"></i> 复制 JSON</button>
+      <button class="btn sm" id="exportHtmlBtn" disabled><i class="fas fa-code-branch"></i> 导出 HTML</button>
+      <button class="btn sm primary" id="exportPngBtn" disabled><i class="fas fa-download"></i> 导出全部 PNG</button>
+    </div>
+
+    <div id="stageWrap">
+      <div id="previewArea"></div>
+      <div id="emptyState">
+        <i class="fas fa-palette icon"></i>
+        <p>输入关键词（如「魔弹论」）后点击「一键生成」，<br>或先点「加载示例」查看成品效果。</p>
+        <button class="btn primary demo-btn" id="emptyDemoBtn"><i class="fas fa-flask"></i> 加载示例（魔弹论）</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 单页大图 -->
+<div id="modal">
+  <div class="viewer" id="modalViewer"></div>
+  <div class="actions">
+    <button class="btn primary" id="modalDlBtn"><i class="fas fa-download"></i> 导出此页 PNG</button>
+    <button class="btn" id="modalCloseBtn"><i class="fas fa-times"></i> 关闭</button>
+  </div>
+</div>
+
+<!-- JSON 编辑器 -->
+<div id="jsonModal">
+  <div class="modal-panel">
+    <h3><i class="fas fa-code"></i> 编辑内容结构 JSON（改完点「应用并渲染」）</h3>
+    <textarea id="jsonEditor" spellcheck="false"></textarea>
+    <div class="modal-actions">
+      <button class="btn" id="jsonCancelBtn">取消</button>
+      <button class="btn primary" id="jsonApplyBtn"><i class="fas fa-check"></i> 应用并渲染</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- 依赖（html2canvas 带国内镜像回退） -->
+<script id="h2c" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script>
+  document.getElementById('h2c').addEventListener('error', function () {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.staticfile.org/html2canvas/1.4.1/html2canvas.min.js';
+    s.onload = function () { window.__H2C_FALLBACK__ = true; };
+    document.head.appendChild(s);
+  });
+</script>
+
+<!-- 渲染引擎 + 演示数据 -->
+<script src="assets/renderer.js"></script>
+<script src="demo/demo-data.js"></script>
+
+<script>
+'use strict';
+
+/* ================= 状态 ================= */
+var state = {
+  content: null,          // 当前内容 JSON
+  brief: null,            // 调研简报
+  mode: 'keyword',
+  viaProxy: false,
+  exporting: false
+};
+
+/* ================= 本地存储（容错 file:// / sandbox） ================= */
+var store = {
+  get: function (k, d) {
+    try { var v = localStorage.getItem('xhs2_' + k); return v == null ? d : v; } catch (e) { return d; }
+  },
+  set: function (k, v) {
+    try { localStorage.setItem('xhs2_' + k, v); } catch (e) { /* ignore */ }
+  }
+};
+
+/* ================= 服务商预设 ================= */
+var PROVIDERS = {
+  deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', label: 'DeepSeek' },
+  openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', label: 'OpenAI' },
+  custom: { base: '', model: '', label: '自定义' }
+};
+
+/* ================= DOM 引用 ================= */
+var $ = function (id) { return document.getElementById(id); };
+var els = {
+  kwInput: $('kwInput'), kwExtra: $('kwExtra'), artInput: $('artInput'),
+  brandInput: $('brandInput'), pageRange: $('pageRange'), totalRange: $('totalRange'), toneSel: $('toneSel'),
+  providerSel: $('providerSel'), modelInput: $('modelInput'), baseUrlInput: $('baseUrlInput'), apiKeyInput: $('apiKeyInput'),
+  genBtn: $('genBtn'), demoBtn: $('demoBtn'),
+  pipeline: $('pipeline'), briefBox: $('briefBox'), briefPre: $('briefPre'),
+  previewArea: $('previewArea'), emptyState: $('emptyState'),
+  stPages: $('stPages'), stChars: $('stChars'), stWarn: $('stWarn'),
+  editJsonBtn: $('editJsonBtn'), copyJsonBtn: $('copyJsonBtn'),
+  exportHtmlBtn: $('exportHtmlBtn'), exportPngBtn: $('exportPngBtn'),
+  modeBadge: $('modeBadge'), connBadge: $('connBadge'), stateBadge: $('stateBadge'),
+  toast: $('toast'), modal: $('modal'), modalViewer: $('modalViewer'),
+  modalDlBtn: $('modalDlBtn'), modalCloseBtn: $('modalCloseBtn'),
+  jsonModal: $('jsonModal'), jsonEditor: $('jsonEditor'), jsonCancelBtn: $('jsonCancelBtn'), jsonApplyBtn: $('jsonApplyBtn')
+};
+
+/* ================= 提示 ================= */
+function toast(msg, type) {
+  var t = document.createElement('div');
+  t.className = 'toast-item ' + (type || '');
+  t.innerHTML = '<i class="fas ' + (type === 'err' ? 'fa-circle-exclamation' : type === 'ok' ? 'fa-circle-check' : 'fa-info-circle') + '"></i>' + msg;
+  els.toast.appendChild(t);
+  els.toast.style.display = 'block';
+  setTimeout(function () { t.style.opacity = '0'; t.style.transition = 'opacity .3s'; }, 4200);
+  setTimeout(function () { t.remove(); if (!els.toast.children.length) els.toast.style.display = 'none'; }, 4600);
+}
+
+/* ================= 配置读写 ================= */
+function loadConfig() {
+  var p = store.get('provider', 'deepseek');
+  els.providerSel.value = p;
+  els.baseUrlInput.value = store.get('baseUrl', PROVIDERS[p].base);
+  els.modelInput.value = store.get('model', PROVIDERS[p].model);
+  els.apiKeyInput.value = store.get('apiKey', '');
+  els.brandInput.value = store.get('brand', 'écho');
+  els.pageRange.value = store.get('pages', '5-8');
+  els.totalRange.value = store.get('total', '1300-1700');
+  els.toneSel.value = store.get('tone', '专业克制');
+}
+function saveConfig() {
+  store.set('provider', els.providerSel.value);
+  store.set('baseUrl', els.baseUrlInput.value.trim());
+  store.set('model', els.modelInput.value.trim());
+  store.set('apiKey', els.apiKeyInput.value.trim());
+  store.set('brand', els.brandInput.value.trim());
+  store.set('pages', els.pageRange.value);
+  store.set('total', els.totalRange.value);
+  store.set('tone', els.toneSel.value);
+}
+els.providerSel.addEventListener('change', function () {
+  var p = els.providerSel.value;
+  if (p === 'custom') return;
+  els.baseUrlInput.value = PROVIDERS[p].base;
+  els.modelInput.value = PROVIDERS[p].model;
+});
+
+/* ================= 连接方式探测 ================= */
+function detectConn(cb) {
+  if (location.protocol !== 'http:' && location.protocol !== 'https:') { cb(false); return; }
+  fetch('/api/health', { method: 'GET' }).then(function (r) {
+    cb(r.ok);
+  }).catch(function () { cb(false); });
+}
+
+/* ================= LLM 调用 ================= */
+function callLLM(messages, temperature) {
+  return new Promise(function (resolve, reject) {
+    var base = els.baseUrlInput.value.trim().replace(/\/+$/, '');
+    var model = els.modelInput.value.trim();
+    var key = els.apiKeyInput.value.trim();
+    if (!base || !model) return reject(new Error('请先填写 Base URL 与模型'));
+    if (!key && !state.viaProxy) return reject(new Error('请填写 API Key（密钥仅保存在本机浏览器）'));
+
+    var directBody = {
+      model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature
+    };
+    if (els.providerSel.value !== 'custom') directBody.response_format = { type: 'json_object' };
+
+    var ctrl = new AbortController();
+    var timer = setTimeout(function () { ctrl.abort(); }, 240000);
+
+    var doFetch = function (url, body) {
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      }).then(function (r) {
+        return r.json().then(function (j) { return { ok: r.ok, status: r.status, json: j }; });
+      }).then(function (res) {
+        clearTimeout(timer);
+        if (!res.ok) {
+          var msg = (res.json && res.json.error && res.json.error.message) || ('HTTP ' + res.status);
+          reject(new Error('接口返回错误：' + msg));
+          return;
+        }
+        var text = res.json.choices && res.json.choices[0] && res.json.choices[0].message && res.json.choices[0].message.content;
+        if (!text) { reject(new Error('接口返回为空')); return; }
+        resolve(text);
+      }).catch(function (e) {
+        clearTimeout(timer);
+        if (e.name === 'AbortError') reject(new Error('请求超时（240s），请检查网络或换更快的模型'));
+        else reject(e);
+      });
+    };
+
+    if (state.viaProxy) {
+      doFetch('/api/chat', { baseUrl: base, apiKey: key, model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature });
+    } else {
+      doFetch(base + '/chat/completions', directBody);
+    }
+  });
+}
+
+/* 从 LLM 输出中提取 JSON */
+function extractJSON(text) {
+  var s = String(text || '').trim();
+  s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+  var start = s.indexOf('{');
+  var end = s.lastIndexOf('}');
+  if (start < 0 || end < 0) throw new Error('AI 未返回 JSON 结构');
+  try { return JSON.parse(s.slice(start, end + 1)); }
+  catch (e) { throw new Error('AI 返回的 JSON 无法解析：' + e.message); }
+}
+
+/* ================= Prompt 模板 ================= */
+function buildResearchPrompt(theme, extra) {
+  var sys = [
+    '你是资深「主题研究员」兼「品牌内容策略分析师」。你为一个本地生活/商业内容工作室服务，负责把关键词或概念快速转化为高信息密度的内容素材。',
+    '',
+    '【任务】围绕主题产出结构化研究简报 JSON，研究维度：',
+    '1. definition：一句话定义（30-60字）',
+    '2. background：背景与来源（提出时间、提出者/学派、时代语境，80-160字）',
+    '3. core_points：3-6 条核心观点/要点，每条 title（10字内）+ detail（50-120字）',
+    '4. evidence：1-4 条代表性例证/案例/实证研究，每条 title + detail（真实存在才写）',
+    '5. application：1-3 条现实应用或争议（含该概念在当下商业/传播场景的映射）',
+    '6. key_terms：3-8 个相关术语',
+    '7. uncertain：你无法高置信确认的事实清单（如某年份、人名、数据），禁止写入前 6 项',
+    '',
+    '【铁律】',
+    '- 只输出你高置信的事实；不确定的年份、人名、数据、案例一律放入 uncertain，绝不编造。',
+    '- 输出必须是合法 JSON，无任何多余文字、注释或 Markdown 代码块围栏。',
+    '- 若主题生僻、信息不足，宁降低 detail 篇幅，不编造细节。'
+  ].join('\n');
+  var user = '主题：' + theme + '\n补充说明：' + (extra || '无');
+  return [{ role: 'system', content: sys }, { role: 'user', content: user }];
+}
+
+function buildOrganizePrompt(brief, articleText) {
+  var sys = [
+    '你是顶尖的「品牌与本地生活内容策略专家」兼「资深前端工程师」，代表专业、克制、有商业洞察力的品牌咨询机构 écho。',
+    '',
+    '【任务】把素材组织成小红书卡片的「内容结构 JSON」。你只负责内容与结构，排版由确定性引擎完成，因此不要输出任何 HTML，只输出结构 JSON。',
+    '',
+    '【叙事剧本】（必须遵循）',
+    '1. 黄金首屏（第1页）：极具视觉冲击力，强制用 metric 大词眼 + 一个全宽 s-accent 橙底盒',
+    '2. 底层逻辑（1-2页）：讲透「为什么」',
+    '3. 深度拆解（1-3页）：信息密度高，多用 list 或 bento 网格',
+    '4. 高光总结（尾页）：给核心哲理 + 一个克制转化钩子（如面向受众的一句行动建议）',
+    '',
+    '【硬性约束】',
+    '- 总页数：' + els.pageRange.value + ' 页；单页正文（含标题）≤350字；全篇总字数 ' + els.totalRange.value + ' 字',
+    '- 中文排版：句子短、适合断行；可在长句用 <br> 手动断句，严禁出现整行只有一个字的「孤字」',
+    '- mainTitle 大标题：以黑色为主，只能用 <hl>核心词</hl> 局部强调 1-3 个词，严禁整句高亮',
+    '- 调性：' + els.toneSel.value + '（拒绝廉价网红风，禁用“家人们”“绝绝子”等）',
+    '- 反幻觉红线：只使用素材中出现或你高置信的事实；严禁捏造业务数据、客户案例、业绩指标、人名年份',
+    '- 品牌「' + els.brandInput.value.trim() + '」与页脚由引擎处理，无需输出',
+    '',
+    '【输出格式】只输出以下结构的合法 JSON，无多余文字、无 Markdown 围栏：',
+    '{',
+    '  "meta": { "theme": "主题名", "mode": "keyword", "brand": "' + els.brandInput.value.trim() + '" },',
+    '  "pages": [',
+    '    { "mainTitle": "…", "blocks": [',
+    '      { "t": "metric", "v": "强冲击词眼或数字" },',
+    '      { "t": "bento", "span": "full|half", "style": "default|tint|accent", "icon": "fa-xxx(FontAwesome图标名)", "title": "…", "text": "…" },',
+    '      { "t": "list", "items": [ { "title": "…", "text": "…" } ] },',
+    '      { "t": "prose", "paras": ["…"], "annotation": "金句（可选）" }',
+    '    ] }',
+    '  ]',
+    '}',
+    '单页 blocks 数量 2-4 个；metric 全篇最多 2 次；list 的 title 8 字内、text 22 字内。'
+  ].join('\n');
+  var user = articleText
+    ? '【素材文章】\n' + articleText
+    : '【研究简报】\n' + JSON.stringify(brief, null, 2);
+  return [{ role: 'system', content: sys }, { role: 'user', content: user }];
+}
+
+/* ================= 流水线 ================= */
+function setStage(name, status) {
+  var stages = els.pipeline.querySelectorAll('.stage');
+  var found = false;
+  stages.forEach(function (s) {
+    var n = s.getAttribute('data-stage');
+    s.classList.remove('active', 'done', 'err');
+    if (n === name) {
+      s.classList.add(status === 'err' ? 'err' : status === 'done' ? 'done' : 'active');
+      found = true;
+    } else if (!found) {
+      s.classList.add('done');
+    } else {
+      /* 之后的 stage 保持默认 */
+    }
+  });
+}
+function pipelineShow(show) { els.pipeline.classList.toggle('visible', show); }
+function setBusy(busy) {
+  els.genBtn.disabled = busy;
+  els.genBtn.innerHTML = busy
+    ? '<i class="fas fa-spinner fa-spin"></i> 生成中…'
+    : '<i class="fas fa-wand-magic-sparkles"></i> 一键生成';
+  els.stateBadge.textContent = busy ? '生成中' : '就绪';
+  els.stateBadge.style.color = busy ? 'var(--accent-2)' : '';
+}
+
+async function runPipeline() {
+  saveConfig();
+  var theme = els.kwInput.value.trim();
+  var article = els.artInput.value.trim();
+
+  if (state.mode === 'keyword' && !theme) { toast('请先输入主题 / 概念名', 'err'); return; }
+  if (state.mode === 'article' && article.length < 20) { toast('文章模式请粘贴至少 20 字的内容', 'err'); return; }
+  if (!state.viaProxy && !els.apiKeyInput.value.trim()) { toast('请填写 API Key（或运行 python3 server.py 用本地代理）', 'err'); return; }
+
+  pipelineShow(true);
+  setBusy(true);
+  els.emptyState.style.display = 'none';
+  els.briefBox.classList.remove('visible');
+
+  try {
+    /* ① 调研 */
+    var brief = null;
+    if (state.mode === 'keyword') {
+      setStage('research', 'active');
+      var researchText = await callLLM(buildResearchPrompt(theme, els.kwExtra.value.trim()), 0.4);
+      brief = extractJSON(researchText);
+      state.brief = brief;
+      els.briefPre.textContent = JSON.stringify(brief, null, 2);
+      els.briefBox.classList.add('visible');
+      setStage('research', 'done');
+    }
+
+    /* ② 结构化 */
+    setStage('organize', 'active');
+    var organizeText = await callLLM(buildOrganizePrompt(brief, state.mode === 'article' ? article : null), 0.7);
+    var content = extractJSON(organizeText);
+    if (!content.pages || !content.pages.length) throw new Error('AI 返回的内容缺少 pages 字段');
+    content.meta = content.meta || {};
+    content.meta.theme = content.meta.theme || theme || '未命名';
+    content.meta.mode = content.meta.mode || state.mode;
+    content.meta.brand = els.brandInput.value.trim() || 'écho';
+    setStage('organize', 'done');
+
+    /* ③ 排版渲染 */
+    setStage('render', 'active');
+    state.content = content;
+    applyContent(content);
+    setStage('render', 'done');
+    toast('生成完成：' + (content.pages.length) + ' 页卡片已渲染', 'ok');
+  } catch (e) {
+    console.error(e);
+    setStage(state.mode === 'keyword' ? 'organize' : 'organize', 'err');
+    toast('生成失败：' + e.message + (state.viaProxy ? '' : '（若为网络/跨域错误，建议 python3 server.py 启动本地服务）'), 'err');
+  } finally {
+    setBusy(false);
+  }
+}
+
+/* ================= 渲染与校验 ================= */
+function applyContent(content) {
+  state.content = content;
+  var result = XHS.render(content, els.previewArea);
+  decorateCards(result);
+  els.stPages.textContent = result.count;
+  els.stChars.textContent = result.total;
+  els.stWarn.style.display = result.warnings.length ? 'inline' : 'none';
+  els.stWarn.textContent = result.warnings.length ? '⚠ ' + result.warnings.length + ' 页超字数' : '';
+  var ok = [els.editJsonBtn, els.copyJsonBtn, els.exportHtmlBtn, els.exportPngBtn];
+  ok.forEach(function (b) { b.disabled = false; });
+  els.emptyState.style.display = 'none';
+}
+
+function decorateCards(result) {
+  var slots = els.previewArea.querySelectorAll('.card-wrapper');
+  slots.forEach(function (w, i) {
+    var badge = document.createElement('div');
+    badge.className = 'card-badge' + (result.pageChars[i] > 350 ? ' over' : '');
+    badge.textContent = 'P' + (i + 1) + ' · ' + result.pageChars[i] + '字' + (result.pageChars[i] > 350 ? ' ⚠' : '');
+    var slot = document.createElement('div');
+    slot.className = 'card-slot';
+    w.parentNode.replaceChild(slot, w);
+    slot.appendChild(badge);
+    slot.appendChild(w);
+    slot.addEventListener('click', function () { openModal(slot, i); });
+  });
+}
+
+/* ================= 示例 ================= */
+function loadDemo() {
+  if (!window.XHS_DEMO) { toast('演示数据缺失（demo/demo-data.js 未生成），请运行 scripts/build_demo.py', 'err'); return; }
+  var content = JSON.parse(JSON.stringify(window.XHS_DEMO));
+  state.brief = null;
+  els.briefBox.classList.remove('visible');
+  applyContent(content);
+  toast('已加载示例「' + (content.meta.theme || '') + '」，点击卡片可查看大图', 'ok');
+}
+
+/* ================= 大图 Modal ================= */
+var modalSlot = null;
+function openModal(slot, idx) {
+  modalSlot = slot;
+  els.modalViewer.innerHTML = '';
+  var clone = slot.querySelector('.xhs-card').cloneNode(true);
+  clone.style.transform = 'scale(0.515)';
+  clone.style.position = 'absolute';
+  clone.style.top = '0';
+  clone.style.left = '0';
+  els.modalViewer.appendChild(clone);
+  els.modalViewer.style.overflow = 'hidden';
+  els.modal.classList.add('open');
+  els.modalDlBtn.onclick = function () { exportSingle(slot, idx); };
+}
+els.modalCloseBtn.onclick = function () { els.modal.classList.remove('open'); };
+els.modal.addEventListener('click', function (e) { if (e.target === els.modal) els.modal.classList.remove('open'); });
+
+/* ================= 导出 ================= */
+function waitH2C(cb) {
+  if (window.html2canvas) return cb();
+  var tries = 0;
+  var iv = setInterval(function () {
+    tries++;
+    if (window.html2canvas) { clearInterval(iv); cb(); }
+    else if (tries > 50) { clearInterval(iv); toast('html2canvas 加载失败，请检查网络后重试', 'err'); }
+  }, 200);
+}
+
+function exportSingle(slot, idx) {
+  if (!state.content) return;
+  waitH2C(function () {
+    var w = slot.querySelector('.card-wrapper');
+    var c = slot.querySelector('.xhs-card');
+    w.classList.add('is-exporting');
+    setTimeout(function () {
+      html2canvas(c, { scale: 1, useCORS: true, backgroundColor: null }).then(function (canvas) {
+        var a = document.createElement('a');
+        a.download = (state.content.meta.theme || 'echo') + '_card_' + (idx + 1) + '.png';
+        a.href = canvas.toDataURL('image/png');
+        a.click();
+        w.classList.remove('is-exporting');
+        toast('第 ' + (idx + 1) + ' 页已导出', 'ok');
+      }).catch(function (e) { w.classList.remove('is-exporting'); toast('导出失败：' + e.message, 'err'); });
+    }, 150);
+  });
+}
+
+function exportAll() {
+  if (!state.content) return;
+  waitH2C(function () {
+    var slots = els.previewArea.querySelectorAll('.card-wrapper');
+    var i = 0;
+    (function next() {
+      if (i >= slots.length) { toast('全部 ' + slots.length + ' 页已导出', 'ok'); return; }
+      var w = slots[i]; var c = w.querySelector('.xhs-card');
+      w.classList.add('is-exporting');
+      setTimeout(function () {
+        html2canvas(c, { scale: 1, useCORS: true, backgroundColor: null }).then(function (canvas) {
+          var a = document.createElement('a');
+          a.download = (state.content.meta.theme || 'echo') + '_card_' + (i + 1) + '.png';
+          a.href = canvas.toDataURL('image/png');
+          a.click();
+          w.classList.remove('is-exporting');
+          i++; setTimeout(next, 250);
+        }).catch(function (e) { w.classList.remove('is-exporting'); toast('第 ' + (i + 1) + ' 页导出失败：' + e.message, 'err'); i++; setTimeout(next, 250); });
+      }, 150);
+    })();
+  });
+}
+
+function exportHtml() {
+  if (!state.content) return;
+  var html = XHS.exportHTML(state.content);
+  var blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  var a = document.createElement('a');
+  a.download = (state.content.meta.theme || 'echo') + '_cards.html';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('已导出独立 HTML（可分享，含下载按钮）', 'ok');
+}
+
+function exportJson() {
+  if (!state.content) return;
+  var blob = new Blob([JSON.stringify(state.content, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.download = (state.content.meta.theme || 'echo') + '_content.json';
+  a.href = URL.createObjectURL(blob);
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function copyJson() {
+  if (!state.content) return;
+  navigator.clipboard.writeText(JSON.stringify(state.content, null, 2)).then(function () {
+    toast('JSON 已复制到剪贴板', 'ok');
+  }).catch(function () {
+    var ta = document.createElement('textarea');
+    ta.value = JSON.stringify(state.content, null, 2);
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); ta.remove();
+    toast('JSON 已复制', 'ok');
+  });
+}
+
+/* ================= JSON 编辑 ================= */
+els.editJsonBtn.onclick = function () {
+  if (!state.content) return;
+  els.jsonEditor.value = JSON.stringify(state.content, null, 2);
+  els.jsonModal.classList.add('open');
+};
+els.jsonCancelBtn.onclick = function () { els.jsonModal.classList.remove('open'); };
+els.jsonApplyBtn.onclick = function () {
+  try {
+    var c = JSON.parse(els.jsonEditor.value);
+    if (!c.pages || !c.pages.length) throw new Error('缺少 pages');
+    applyContent(c);
+    els.jsonModal.classList.remove('open');
+    toast('已应用并重新渲染', 'ok');
+  } catch (e) { toast('JSON 无效：' + e.message, 'err'); }
+};
+
+/* ================= 事件绑定 ================= */
+els.genBtn.onclick = runPipeline;
+els.demoBtn.onclick = loadDemo;
+els.emptyDemoBtn.onclick = loadDemo;
+els.exportPngBtn.onclick = exportAll;
+els.exportHtmlBtn.onclick = exportHtml;
+els.copyJsonBtn.onclick = copyJson;
+els.exportPngBtn.addEventListener('dblclick', function (e) { e.preventDefault(); });
+
+/* 模式切换 */
+document.querySelectorAll('#modeTabs button').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.querySelectorAll('#modeTabs button').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    state.mode = btn.getAttribute('data-mode');
+    els.kwPanel.style.display = state.mode === 'keyword' ? '' : 'none';
+    els.artPanel.style.display = state.mode === 'article' ? '' : 'none';
+    els.modeBadge.innerHTML = state.mode === 'keyword'
+      ? '<i class="fas fa-magic"></i> 关键词模式' : '<i class="fas fa-file-alt"></i> 文章模式';
+  });
+});
+
+/* Ctrl/Cmd + Enter 快速生成 */
+document.addEventListener('keydown', function (e) {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter' && !els.genBtn.disabled) runPipeline();
+});
+
+/* ================= 启动 ================= */
+loadConfig();
+
+// 立即检测是否需要自动加载演示（不依赖 detectConn）
+if (location.hash === '#demo' || location.search.indexOf('demo=1') >= 0) {
+  setTimeout(function () { if (window.XHS_DEMO) loadDemo(); }, 200);
+}
+
+detectConn(function (proxyOk) {
+  state.viaProxy = proxyOk;
+  els.connBadge.innerHTML = proxyOk
+    ? '<i class="fas fa-link"></i> 本地代理模式（无跨域限制）'
+    : '<i class="fas fa-globe"></i> 直连模式';
+  els.connBadge.style.color = proxyOk ? 'var(--ok)' : 'var(--text-2)';
+  if (!proxyOk && location.protocol === 'file:') {
+    toast('已检测到 file:// 直连。若接口被跨域拦截，请运行 <b>python3 server.py</b> 后访问 http://localhost:8765', '');
+  }
+});
+</script>
+</body>
+</html>
