@@ -248,7 +248,9 @@
       <input type="text" id="baseUrlInput" value="https://api.deepseek.com/v1">
       <label>API Key</label>
       <input type="password" id="apiKeyInput" placeholder="sk-..." autocomplete="off">
-      <div class="hint"><i class="fas fa-shield-alt"></i> DeepSeek Key 在 platform.deepseek.com 获取。若浏览器直连被跨域拦截，请用 <span class="kbd">python3 server.py</span> 启动本地服务（自带代理）。</div>
+      <label>代理转发地址（可选，解决跨域）</label>
+      <input type="text" id="proxyUrlInput" placeholder="留空 = 直连；或填 https://你的代理.workers.dev 等">
+      <div class="hint"><i class="fas fa-shield-alt"></i> 若服务商不支持浏览器跨域（如腾讯 tokenhub），可填一个代理地址转发请求。代理协议见项目 README「线上代理」章节。密钥仅存本机浏览器。</div>
       <div class="row" style="margin-top:4px">
         <button class="btn primary" id="genBtn"><i class="fas fa-wand-magic-sparkles"></i> 一键生成</button>
         <button class="btn" id="demoBtn"><i class="fas fa-flask"></i> 加载示例</button>
@@ -371,7 +373,7 @@ var $ = function (id) { return document.getElementById(id); };
 var els = {
   kwInput: $('kwInput'), kwExtra: $('kwExtra'), artInput: $('artInput'),
   brandInput: $('brandInput'), pageRange: $('pageRange'), totalRange: $('totalRange'), toneSel: $('toneSel'),
-  providerSel: $('providerSel'), modelInput: $('modelInput'), baseUrlInput: $('baseUrlInput'), apiKeyInput: $('apiKeyInput'),
+  providerSel: $('providerSel'), modelInput: $('modelInput'), baseUrlInput: $('baseUrlInput'), apiKeyInput: $('apiKeyInput'), proxyUrlInput: $('proxyUrlInput'),
   genBtn: $('genBtn'), demoBtn: $('demoBtn'), testBtn: $('testBtn'),
   pipeline: $('pipeline'), briefBox: $('briefBox'), briefPre: $('briefPre'),
   previewArea: $('previewArea'), emptyState: $('emptyState'),
@@ -402,6 +404,7 @@ function loadConfig() {
   els.baseUrlInput.value = store.get('baseUrl', PROVIDERS[p].base);
   els.modelInput.value = store.get('model', PROVIDERS[p].model);
   els.apiKeyInput.value = store.get('apiKey', '');
+  els.proxyUrlInput.value = store.get('proxyUrl', '');
   els.brandInput.value = store.get('brand', 'écho');
   els.pageRange.value = store.get('pages', '5-8');
   els.totalRange.value = store.get('total', '1300-1700');
@@ -412,6 +415,7 @@ function saveConfig() {
   store.set('baseUrl', els.baseUrlInput.value.trim());
   store.set('model', els.modelInput.value.trim());
   store.set('apiKey', els.apiKeyInput.value.trim());
+  store.set('proxyUrl', els.proxyUrlInput.value.trim());
   store.set('brand', els.brandInput.value.trim());
   store.set('pages', els.pageRange.value);
   store.set('total', els.totalRange.value);
@@ -438,8 +442,9 @@ function callLLM(messages, temperature) {
     var base = els.baseUrlInput.value.trim().replace(/\/+$/, '');
     var model = els.modelInput.value.trim();
     var key = els.apiKeyInput.value.trim();
+    var proxy = els.proxyUrlInput.value.trim().replace(/\/+$/, '');
     if (!base || !model) return reject(new Error('请先填写 Base URL 与模型'));
-    if (!key && !state.viaProxy) return reject(new Error('请填写 API Key（密钥仅保存在本机浏览器）'));
+    if (!key) return reject(new Error('请填写 API Key（密钥仅保存在本机浏览器）'));
 
     var directBody = {
       model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature
@@ -449,7 +454,7 @@ function callLLM(messages, temperature) {
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, 240000);
 
-    var doFetch = function (url, body) {
+    var doFetch = function (url, body, retriedJsonFormat) {
       fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
@@ -464,6 +469,13 @@ function callLLM(messages, temperature) {
       }).then(function (res) {
         clearTimeout(timer);
         if (!res.ok) {
+          /* 兼容：部分服务商（腾讯 tokenhub 等）不支持 response_format，400 时去掉重试一次 */
+          if (res.status === 400 && body.response_format && !retriedJsonFormat) {
+            var retryBody = JSON.parse(JSON.stringify(body));
+            delete retryBody.response_format;
+            doFetch(url, retryBody, true);
+            return;
+          }
           var msg = (res.json && res.json.error && (res.json.error.message || res.json.error.type)) || res.raw || ('HTTP ' + res.status);
           if (res.status === 401 || res.status === 403) msg = 'API Key 无效或无权限（' + res.status + '），请检查 Key 是否复制完整、是否有余额';
           else if (res.status === 404) msg = '接口路径 404：Base URL 可能缺少 /v1 或路径不对（当前 ' + base + '）';
@@ -481,11 +493,36 @@ function callLLM(messages, temperature) {
           /* 网络层失败：DNS/连接被拒/CORS/混合内容 */
           var b = els.baseUrlInput.value.trim();
           if (b.indexOf('http://') === 0) reject(new Error('Base URL 是 http://，当前页面为 https，浏览器已拦截（Mixed Content）。请改为 https://，或本机 python3 server.py 使用'));
-          else reject(new Error('无法连接到 ' + b + '（网络不可达 / 域名被墙 / 被代理拦截 / 服务商不支持跨域直连）。请点「测试连接」按钮查看诊断'));
+          else reject(new Error('无法连接 ' + b + '（服务商可能不支持浏览器跨域 CORS，或网络不可达）。解法：① 在「代理转发地址」填一个支持 CORS 的代理，或 ② 本机 python3 server.py 后访问 http://127.0.0.1:8765'));
         }
         else reject(e);
       });
     };
+
+    /* 代理模式：POST 到代理地址，代理转发到真实 LLM（协议与 server.py /api/chat 一致） */
+    if (proxy) {
+      fetch(proxy, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: base, apiKey: key, model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature }),
+        signal: ctrl.signal
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        clearTimeout(timer);
+        if (!j.ok) {
+          var m = (j.error && j.error.message) || 'HTTP ' + (j.status || '?');
+          reject(new Error('代理返回错误：' + String(m).slice(0, 200)));
+          return;
+        }
+        var text = j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content;
+        if (!text) { reject(new Error('代理返回内容为空')); return; }
+        resolve(text);
+      }).catch(function (e) {
+        clearTimeout(timer);
+        if (e.name === 'AbortError') reject(new Error('代理请求超时（240s）'));
+        else reject(new Error('代理连接失败：' + e.message + '（检查代理地址是否填写正确）'));
+      });
+      return;
+    }
 
     if (state.viaProxy) {
       doFetch('/api/chat', { baseUrl: base, apiKey: key, model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature });
@@ -500,6 +537,7 @@ function testConnection() {
   var base = els.baseUrlInput.value.trim().replace(/\/+$/, '');
   var model = els.modelInput.value.trim();
   var key = els.apiKeyInput.value.trim();
+  var proxy = els.proxyUrlInput.value.trim().replace(/\/+$/, '');
   var lines = [];
   var bad = false;
   var done = function () {
@@ -508,6 +546,8 @@ function testConnection() {
   if (!base) { toast('请先填写 Base URL', 'err'); return; }
   if (!model) { toast('请先填写模型', 'err'); return; }
   if (!key) { toast('请填写 API Key（诊断才能验证 Key 是否有效）', 'err'); return; }
+
+  if (proxy) lines.push('✓ 已配置代理转发地址：' + proxy);
 
   /* ① URL 格式 */
   if (!/^https?:\/\//.test(base)) { lines.push('✗ Base URL 必须以 http(s):// 开头'); bad = true; }
@@ -519,7 +559,7 @@ function testConnection() {
     lines.push('✓ URL 格式正确：' + base);
   }
 
-  /* ② 网络可达性 + CORS */
+  /* ② 网络可达性 + CORS 探测 */
   var probe = new Promise(function (resolve) {
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, 12000);
@@ -531,53 +571,114 @@ function testConnection() {
       clearTimeout(timer);
       var cors = r.headers.get('access-control-allow-origin');
       if (r.ok || r.status < 500) {
-        lines.push('✓ 网络可达，服务商已响应（HTTP ' + r.status + '）' + (cors ? '，CORS 允许浏览器直连' : '，但未返回 CORS 头（若后续失败需用本地代理）'));
+        lines.push('✓ 网络可达，服务商已响应（HTTP ' + r.status + '）' + (cors ? '，CORS 允许浏览器直连' : '，但未返回 CORS 头（若后续失败需用代理/本地服务）'));
       } else {
         lines.push('✗ 服务商返回 HTTP ' + r.status + '（网络可达，但服务端异常）'); bad = true;
       }
       resolve();
     }).catch(function (e) {
       clearTimeout(timer);
-      lines.push('✗ 网络层失败：' + (e.name === 'AbortError' ? '连接超时（12s）' : e.message));
-      lines.push('  → 可能原因：域名不可达 / 被防火墙或代理拦截 / 服务商不支持跨域直连');
-      lines.push('  → 本地可用方案：python3 server.py 后通过 http://127.0.0.1:8765 使用（自带代理）');
-      bad = true;
-      resolve();
+      /* fetch 抛错 = CORS 被拦 或 网络不可达。发一个 OPTIONS 预检进一步区分 */
+      fetch(base + '/chat/completions', {
+        method: 'OPTIONS',
+        headers: {
+          'Origin': location.origin,
+          'Access-Control-Request-Method': 'POST',
+          'Access-Control-Request-Headers': 'authorization,content-type'
+        }
+      }).then(function (r) {
+        var cors = r.headers.get('access-control-allow-origin');
+        if (cors) {
+          lines.push('✗ 预检通过但请求仍失败，疑为网络/代理问题：' + (e.name === 'AbortError' ? '超时' : e.message)); bad = true;
+        } else {
+          lines.push('✗ 该服务商【不支持浏览器跨域 CORS】（预检 HTTP ' + r.status + '，无 Access-Control-Allow-Origin 头）');
+          lines.push('  → 腾讯 tokenhub / 部分国内云厂商常见此限制，配置无法解决');
+          lines.push('  → 解法一：在「代理转发地址」填一个支持 CORS 的代理（推荐，见 README「线上代理」）；');
+          lines.push('  → 解法二：本机 python3 server.py 后访问 http://127.0.0.1:8765（自带代理）');
+          bad = true;
+        }
+        resolve();
+      }).catch(function () {
+        lines.push('✗ 网络层失败：' + (e.name === 'AbortError' ? '连接超时（12s）' : e.message));
+        lines.push('  → 可能原因：域名不可达 / 被防火墙或代理拦截');
+        lines.push('  → 本地可用方案：python3 server.py 后通过 http://127.0.0.1:8765 使用（自带代理）');
+        bad = true;
+        resolve();
+      });
     });
   });
 
   probe.then(function () {
-    /* ③ Key + 模型 验证（最小 chat 请求） */
+    /* ③ Key + 模型 验证：若有代理走代理，否则直连 */
     var body = { model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 3 };
     if (els.providerSel.value !== 'custom') body.response_format = { type: 'json_object' };
-    fetch(base + '/chat/completions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
-      body: JSON.stringify(body)
-    }).then(function (r) {
-      if (r.ok) lines.push('✓ API Key 有效，模型「' + model + '」可用');
-      else if (r.status === 401 || r.status === 403) { lines.push('✗ API Key 无效或无权限（' + r.status + '）→ 检查 Key 是否复制完整、有无空格、账户是否有余额'); bad = true; }
-      else if (r.status === 404) { lines.push('✗ 路径 404 → Base URL 可能少了 /v1，例如应为 https://api.deepseek.com/v1'); bad = true; }
-      else if (r.status === 400) { lines.push('✗ HTTP 400 → 模型名可能不对（' + model + '）或服务商不支持 response_format'); bad = true; }
-      else { lines.push('⚠ 返回 HTTP ' + r.status + '（服务商异常）'); bad = true; }
-      done();
-    }).catch(function (e) {
-      lines.push('✗ Key 验证请求失败：' + e.message);
-      bad = true;
-      done();
-    });
+
+    var check = function (promise) {
+      promise.then(function (r) {
+        if (r.ok) lines.push('✓ API Key 有效，模型「' + model + '」可用');
+        else if (r.status === 401 || r.status === 403) { lines.push('✗ API Key 无效或无权限（' + r.status + '）→ 检查 Key 是否复制完整、有无空格、账户是否有余额'); bad = true; }
+        else if (r.status === 404) { lines.push('✗ 路径 404 → Base URL 可能少了 /v1，例如应为 https://api.deepseek.com/v1'); bad = true; }
+        else if (r.status === 400) { lines.push('✗ HTTP 400 → 模型名可能不对（' + model + '）或服务商不支持 response_format'); bad = true; }
+        else { lines.push('⚠ 返回 HTTP ' + r.status + '（服务商异常）'); bad = true; }
+        done();
+      }).catch(function (e) {
+        lines.push('✗ Key 验证请求失败：' + e.message);
+        bad = true;
+        done();
+      });
+    };
+
+    if (proxy) {
+      fetch(proxy, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ baseUrl: base, apiKey: key, model: model, messages: [{ role: 'user', content: 'ping' }], temperature: 0.3 })
+      }).then(function (r) { return r.json(); }).then(function (j) {
+        if (j.ok) lines.push('✓ 代理转发成功，API Key 有效，模型「' + model + '」可用');
+        else { lines.push('✗ 代理返回错误：' + ((j.error && j.error.message) || 'unknown')); bad = true; }
+        done();
+      }).catch(function (e) {
+        lines.push('✗ 代理连接失败：' + e.message); bad = true; done();
+      });
+    } else {
+      check(fetch(base + '/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+        body: JSON.stringify(body)
+      }).then(function (r) { return { ok: r.ok, status: r.status }; }));
+    }
   });
 }
 
-/* 从 LLM 输出中提取 JSON */
+/* 从 LLM 输出中提取 JSON（自适应解包：兼容腾讯混元 hy3 等把回复包成 {"text":"..."} 的服务商） */
+function unwrapText(text) {
+  var cur = String(text == null ? '' : text).trim();
+  for (var i = 0; i < 6; i++) {
+    if (cur.charAt(0) !== '{' || cur.charAt(cur.length - 1) !== '}') break;
+    var obj = null;
+    try { obj = JSON.parse(cur); } catch (e) { break; }
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) break;
+    /* 已包含 pages 或 definition 等结构 → 这就是目标 JSON，返回 */
+    if (obj.pages || obj.definition || obj.core_points) return cur;
+    /* 否则看是否有 text/content/response/reply/answer 包裹字段，解一层 */
+    var inner = null;
+    ['text', 'content', 'response', 'reply', 'answer'].forEach(function (k) {
+      if (inner === null && typeof obj[k] === 'string') inner = obj[k];
+    });
+    if (inner === null) break;
+    cur = inner.trim();
+  }
+  return cur;
+}
+
 function extractJSON(text) {
-  var s = String(text || '').trim();
+  var s = unwrapText(text);
   s = s.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
   var start = s.indexOf('{');
   var end = s.lastIndexOf('}');
-  if (start < 0 || end < 0) throw new Error('AI 未返回 JSON 结构');
+  if (start < 0 || end < 0) throw new Error('AI 未返回 JSON 结构，原始内容：' + String(text).slice(0, 200));
   try { return JSON.parse(s.slice(start, end + 1)); }
-  catch (e) { throw new Error('AI 返回的 JSON 无法解析：' + e.message); }
+  catch (e) { throw new Error('AI 返回的 JSON 无法解析：' + e.message + '（原始：' + String(text).slice(0, 200) + '）'); }
 }
 
 /* ================= Prompt 模板 ================= */
