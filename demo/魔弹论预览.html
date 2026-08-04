@@ -105,14 +105,15 @@ body { margin: 0; background-color: #f4f6f9; display: flex; flex-direction: colu
   /** 完整样式（独立预览页 / 导出 HTML 使用，<link> 已在外层页面加载过则浏览器去重） */
   var ECHO_CSS = FONT_IMPORT + '\n' + CARD_CSS + '\n' + SHELL_CSS;
 
-  /* ---------------- 自动注入卡片样式（幂等） ----------------
-   * 渲染引擎加载即注入，杜绝宿主页面漏引用导致「只有文字无样式」 */
+  /* ---------------- 自动注入卡片样式 + 品牌字体（幂等） ----------------
+   * 渲染引擎加载即注入，杜绝宿主页面漏引用导致「只有文字无样式」或字体缺失。
+   * @import 必须位于样式表最前，故文本以 FONT_IMPORT 开头。 */
   (function ensureCardCSS() {
     if (!global.document || !global.document.head) return;
     if (global.document.getElementById('echo-card-style')) return;
     var st = global.document.createElement('style');
     st.id = 'echo-card-style';
-    st.textContent = CARD_CSS;
+    st.textContent = FONT_IMPORT + '\n' + CARD_CSS;
     global.document.head.appendChild(st);
   })();
 
