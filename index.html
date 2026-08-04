@@ -437,6 +437,10 @@ els.providerSel.addEventListener('change', function () {
 /* ================= 连接方式探测 ================= */
 function detectConn(cb) {
   if (location.protocol !== 'http:' && location.protocol !== 'https:') { cb(false); return; }
+  /* 仅本地回环服务（python3 server.py）才存在 /api/health；
+     静态托管（GitHub Pages / 自定义域名）直接判定直连模式，避免无谓的 404 请求 */
+  var h = location.hostname;
+  if (h !== '127.0.0.1' && h !== 'localhost' && h !== '::1') { cb(false); return; }
   fetch('/api/health', { method: 'GET' }).then(function (r) {
     cb(r.ok);
   }).catch(function () { cb(false); });
