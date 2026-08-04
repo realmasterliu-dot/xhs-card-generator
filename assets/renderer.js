@@ -26,8 +26,8 @@
 
   /* ---------------- écho 设计系统 CSS（原始模板原样保留 + 少量补充） ---------------- */
 
-  /** 品牌字体（江成圆体）—— @import 必须位于样式表最前 */
-  var FONT_IMPORT = '@import url("https://fontsapi.zeoseven.com/59/main/result.css");';
+  /** 品牌字体（江成圆体）—— 已自托管于 assets/fonts/，@import 必须位于样式表最前 */
+  var FONT_IMPORT = '@import url("assets/fonts/result.css");';
 
   /** 演示页壳样式（独立预览页 / 导出 HTML 使用） */
   var SHELL_CSS = [
@@ -41,7 +41,7 @@
 
   /** 卡片设计系统 CSS（自动注入到任意宿主页面） */
   var CARD_CSS = [
-    FONT_IMPORT,
+    /* @import 改在 index.html head 用 <link> 加载（利于 html2canvas 导出识别 @font-face） */
     '.card-wrapper { width: 435px; height: 581px; flex-shrink: 0; position: relative; scroll-snap-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.08); border-radius: 12px; overflow: hidden; background: #fff; }',
     '.xhs-card { width: 1242px; height: 1660px; background-color: #FBF9F6; padding: 80px 80px 70px 80px; box-sizing: border-box; position: absolute; top: 0; left: 0; transform-origin: top left; transform: scale(0.35); overflow: hidden; display: flex; flex-direction: column; font-family: "JiangChengYuanTi", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; font-weight: normal; }',
     '.main-title { font-size: 84px; color: #111; margin: 0 0 35px 0; line-height: 1.3; font-weight: 800; z-index: 2; flex-shrink: 0; }',
@@ -76,8 +76,8 @@
     '.card-wrapper.is-exporting .xhs-card { transform: none !important; }'
   ].join('\n');
 
-  /** 完整样式（@import 置于最前；供独立预览页 / 导出 HTML 使用） */
-  var ECHO_CSS = CARD_CSS + '\n' + SHELL_CSS;
+  /** 完整样式（独立预览页 / 导出 HTML 使用，<link> 已在外层页面加载过则浏览器去重） */
+  var ECHO_CSS = FONT_IMPORT + '\n' + CARD_CSS + '\n' + SHELL_CSS;
 
   /* ---------------- 自动注入卡片样式（幂等） ----------------
    * 渲染引擎加载即注入，杜绝宿主页面漏引用导致「只有文字无样式」 */

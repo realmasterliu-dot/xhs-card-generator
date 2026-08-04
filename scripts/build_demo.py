@@ -31,6 +31,8 @@ def main():
     # 2) 独立预览页（全内联）
     with open(RENDERER, "r", encoding="utf-8") as f:
         renderer_src = f.read()
+    # demo 页位于 demo/ 子目录，需把相对路径修正为指向上级 assets/fonts/
+    renderer_src = renderer_src.replace('"assets/fonts/result.css"', '"../assets/fonts/result.css"')
     demo_json = json.dumps(content, ensure_ascii=False)
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
