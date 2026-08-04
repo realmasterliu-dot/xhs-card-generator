@@ -81,13 +81,20 @@
 
   /* ---------------- 自动注入卡片样式 + 品牌字体（幂等） ----------------
    * 渲染引擎加载即注入，杜绝宿主页面漏引用导致「只有文字无样式」或字体缺失。
-   * @import 必须位于样式表最前，故文本以 FONT_IMPORT 开头。 */
+   * @import 必须位于样式表最前，故文本以 FONT_IMPORT 开头。
+   * 若宿主页面已通过 <link> 引入字体（如 index.html 的 #brand-font-css），则跳过字体 @import，
+   * 避免同一字体被注册两遍（248 个面 → 124 个）。 */
   (function ensureCardCSS() {
     if (!global.document || !global.document.head) return;
     if (global.document.getElementById('echo-card-style')) return;
+    var hasFontLink = !!global.document.getElementById('brand-font-css') ||
+      Array.prototype.some.call(global.document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
+        return /result\.css/.test(l.getAttribute('href') || '');
+      });
+    var fontCss = hasFontLink ? '' : (FONT_IMPORT + '\n');
     var st = global.document.createElement('style');
     st.id = 'echo-card-style';
-    st.textContent = FONT_IMPORT + '\n' + CARD_CSS;
+    st.textContent = fontCss + CARD_CSS;
     global.document.head.appendChild(st);
   })();
 
