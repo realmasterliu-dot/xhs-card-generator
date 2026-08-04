@@ -324,12 +324,18 @@
 
 <div id="toast"></div>
 
-<!-- 依赖（html2canvas 带国内镜像回退） -->
-<script id="h2c" src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<!-- 依赖（html2canvas 本地优先，失败依次回退 cdnjs / 国内镜像） -->
+<script id="h2c" src="assets/html2canvas.min.js"></script>
 <script>
   document.getElementById('h2c').addEventListener('error', function () {
     var s = document.createElement('script');
-    s.src = 'https://cdn.staticfile.org/html2canvas/1.4.1/html2canvas.min.js';
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+    s.onerror = function () {
+      var s2 = document.createElement('script');
+      s2.src = 'https://cdn.staticfile.org/html2canvas/1.4.1/html2canvas.min.js';
+      s2.onload = function () { window.__H2C_FALLBACK__ = true; };
+      document.head.appendChild(s2);
+    };
     s.onload = function () { window.__H2C_FALLBACK__ = true; };
     document.head.appendChild(s);
   });
@@ -374,7 +380,7 @@ var els = {
   kwInput: $('kwInput'), kwExtra: $('kwExtra'), artInput: $('artInput'),
   brandInput: $('brandInput'), pageRange: $('pageRange'), totalRange: $('totalRange'), toneSel: $('toneSel'),
   providerSel: $('providerSel'), modelInput: $('modelInput'), baseUrlInput: $('baseUrlInput'), apiKeyInput: $('apiKeyInput'), proxyUrlInput: $('proxyUrlInput'),
-  genBtn: $('genBtn'), demoBtn: $('demoBtn'), testBtn: $('testBtn'),
+  genBtn: $('genBtn'), demoBtn: $('demoBtn'), testBtn: $('testBtn'), emptyDemoBtn: $('emptyDemoBtn'),
   pipeline: $('pipeline'), briefBox: $('briefBox'), briefPre: $('briefPre'),
   previewArea: $('previewArea'), emptyState: $('emptyState'),
   stPages: $('stPages'), stChars: $('stChars'), stWarn: $('stWarn'),
@@ -892,45 +898,59 @@ function waitH2C(cb) {
   }, 200);
 }
 
+/** 等待品牌字体就绪（最多 4s 兜底），避免导出 PNG 丢失字体 */
+function waitFonts(cb) {
+  var done = false;
+  var go = function () { if (!done) { done = true; cb(); } };
+  if (document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(go).catch(go);
+    setTimeout(go, 4000);
+  } else go();
+}
+
 function exportSingle(slot, idx) {
   if (!state.content) return;
-  waitH2C(function () {
-    var w = slot.querySelector('.card-wrapper');
-    var c = slot.querySelector('.xhs-card');
-    w.classList.add('is-exporting');
-    setTimeout(function () {
-      html2canvas(c, { scale: 1, useCORS: true, backgroundColor: null }).then(function (canvas) {
-        var a = document.createElement('a');
-        a.download = (state.content.meta.theme || 'echo') + '_card_' + (idx + 1) + '.png';
-        a.href = canvas.toDataURL('image/png');
-        a.click();
-        w.classList.remove('is-exporting');
-        toast('第 ' + (idx + 1) + ' 页已导出', 'ok');
-      }).catch(function (e) { w.classList.remove('is-exporting'); toast('导出失败：' + e.message, 'err'); });
-    }, 150);
+  waitFonts(function () {
+    waitH2C(function () {
+      var w = slot.querySelector('.card-wrapper');
+      var c = slot.querySelector('.xhs-card');
+      w.classList.add('is-exporting');
+      setTimeout(function () {
+        html2canvas(c, { scale: 1, useCORS: true, backgroundColor: null }).then(function (canvas) {
+          var a = document.createElement('a');
+          a.download = (state.content.meta.theme || 'echo') + '_card_' + (idx + 1) + '.png';
+          a.href = canvas.toDataURL('image/png');
+          a.click();
+          w.classList.remove('is-exporting');
+          toast('第 ' + (idx + 1) + ' 页已导出', 'ok');
+        }).catch(function (e) { w.classList.remove('is-exporting'); toast('导出失败：' + e.message, 'err'); });
+      }, 150);
+    });
   });
 }
 
 function exportAll() {
   if (!state.content) return;
-  waitH2C(function () {
-    var slots = els.previewArea.querySelectorAll('.card-wrapper');
-    var i = 0;
-    (function next() {
-      if (i >= slots.length) { toast('全部 ' + slots.length + ' 页已导出', 'ok'); return; }
-      var w = slots[i]; var c = w.querySelector('.xhs-card');
-      w.classList.add('is-exporting');
-      setTimeout(function () {
-        html2canvas(c, { scale: 1, useCORS: true, backgroundColor: null }).then(function (canvas) {
-          var a = document.createElement('a');
-          a.download = (state.content.meta.theme || 'echo') + '_card_' + (i + 1) + '.png';
-          a.href = canvas.toDataURL('image/png');
-          a.click();
-          w.classList.remove('is-exporting');
-          i++; setTimeout(next, 250);
-        }).catch(function (e) { w.classList.remove('is-exporting'); toast('第 ' + (i + 1) + ' 页导出失败：' + e.message, 'err'); i++; setTimeout(next, 250); });
-      }, 150);
-    })();
+  waitFonts(function () {
+    waitH2C(function () {
+      var slots = els.previewArea.querySelectorAll('.card-wrapper');
+      var i = 0;
+      (function next() {
+        if (i >= slots.length) { toast('全部 ' + slots.length + ' 页已导出', 'ok'); return; }
+        var w = slots[i]; var c = w.querySelector('.xhs-card');
+        w.classList.add('is-exporting');
+        setTimeout(function () {
+          html2canvas(c, { scale: 1, useCORS: true, backgroundColor: null }).then(function (canvas) {
+            var a = document.createElement('a');
+            a.download = (state.content.meta.theme || 'echo') + '_card_' + (i + 1) + '.png';
+            a.href = canvas.toDataURL('image/png');
+            a.click();
+            w.classList.remove('is-exporting');
+            i++; setTimeout(next, 250);
+          }).catch(function (e) { w.classList.remove('is-exporting'); toast('第 ' + (i + 1) + ' 页导出失败：' + e.message, 'err'); i++; setTimeout(next, 250); });
+        }, 150);
+      })();
+    });
   });
 }
 
