@@ -92,6 +92,7 @@
   .stage.done { color: var(--text); }
   .stage.done .dot { background: var(--ok); }
   .stage.err .dot { background: var(--err); }
+  .stage-hint { color: var(--text-2); font-size: 12px; opacity: .85; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
 
   #briefBox { display: none; }
@@ -260,9 +261,9 @@
 
     <!-- 流水线进度 -->
     <div id="pipeline">
-      <div class="stage" data-stage="research"><span class="dot"></span>① 调研：收集主题关键信息</div>
-      <div class="stage" data-stage="organize"><span class="dot"></span>② 结构化：组织卡片内容</div>
-      <div class="stage" data-stage="render"><span class="dot"></span>③ 排版：渲染 écho 卡片</div>
+      <div class="stage" data-stage="research"><span class="dot"></span>① 调研：收集主题关键信息<span class="stage-hint" data-hint></span></div>
+      <div class="stage" data-stage="organize"><span class="dot"></span>② 结构化：组织卡片内容<span class="stage-hint" data-hint></span></div>
+      <div class="stage" data-stage="render"><span class="dot"></span>③ 排版：渲染 écho 卡片<span class="stage-hint" data-hint></span></div>
     </div>
 
     <!-- 调研简报（可展开） -->
@@ -437,7 +438,7 @@ function detectConn(cb) {
 }
 
 /* ================= LLM 调用 ================= */
-function callLLM(messages, temperature) {
+function callLLM(messages, temperature, maxTokens) {
   return new Promise(function (resolve, reject) {
     var base = els.baseUrlInput.value.trim().replace(/\/+$/, '');
     var model = els.modelInput.value.trim();
@@ -449,10 +450,12 @@ function callLLM(messages, temperature) {
     var directBody = {
       model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature
     };
+    if (maxTokens) directBody.max_tokens = maxTokens;
     if (els.providerSel.value !== 'custom') directBody.response_format = { type: 'json_object' };
 
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, 240000);
+    var attempt = 0;
 
     var doFetch = function (url, body, retriedJsonFormat) {
       fetch(url, {
@@ -484,7 +487,18 @@ function callLLM(messages, temperature) {
           return;
         }
         var text = res.json && res.json.choices && res.json.choices[0] && res.json.choices[0].message && res.json.choices[0].message.content;
-        if (!text) { reject(new Error('接口返回为空（可能是余额不足或内容被过滤），原始返回：' + String(res.raw).slice(0, 120))); return; }
+        if (!text) {
+          /* 服务商偶发返回空内容（腾讯混元 hy3 实测存在），自动重试一次 */
+          if (attempt < 2) {
+            attempt++;
+            clearTimeout(timer);
+            timer = setTimeout(function () { ctrl.abort(); }, 240000);
+            doFetch(url, body, retriedJsonFormat);
+            return;
+          }
+          reject(new Error('接口连续两次返回空（可能是模型超长输出被截断或服务商限流）。建议：① 缩小页数/字数再试 ② 换 DeepSeek 模型 ③ 稍后再试。原始返回：' + String(res.raw).slice(0, 120)));
+          return;
+        }
         resolve(text);
       }).catch(function (e) {
         clearTimeout(timer);
@@ -745,14 +759,18 @@ function buildOrganizePrompt(brief, articleText) {
 }
 
 /* ================= 流水线 ================= */
-function setStage(name, status) {
+var stageTimer = null;
+function setStage(name, status, hint) {
   var stages = els.pipeline.querySelectorAll('.stage');
   var found = false;
   stages.forEach(function (s) {
     var n = s.getAttribute('data-stage');
     s.classList.remove('active', 'done', 'err');
+    var h = s.querySelector('[data-hint]');
+    if (h) h.textContent = '';
     if (n === name) {
       s.classList.add(status === 'err' ? 'err' : status === 'done' ? 'done' : 'active');
+      if (h && hint) h.textContent = ' ' + hint;
       found = true;
     } else if (!found) {
       s.classList.add('done');
@@ -760,6 +778,20 @@ function setStage(name, status) {
       /* 之后的 stage 保持默认 */
     }
   });
+  /* 计时器：active 状态时每秒更新「已等待 Xs」，让用户知道程序在跑而不是卡死 */
+  if (stageTimer) { clearInterval(stageTimer); stageTimer = null; }
+  if (status === 'active') {
+    var el = null;
+    stages.forEach(function (s) {
+      if (s.getAttribute('data-stage') === name) el = s;
+    });
+    var sec = 0;
+    stageTimer = setInterval(function () {
+      sec++;
+      var h = el && el.querySelector('[data-hint]');
+      if (h) h.textContent = ' …已等待 ' + sec + 's' + (sec > 30 ? '（生成内容较长，请耐心等待）' : '');
+    }, 1000);
+  }
 }
 function pipelineShow(show) { els.pipeline.classList.toggle('visible', show); }
 function setBusy(busy) {
@@ -789,7 +821,7 @@ async function runPipeline() {
     /* ① 调研 */
     var brief = null;
     if (state.mode === 'keyword') {
-      setStage('research', 'active');
+      setStage('research', 'active', '收集 6 维度信息，约 10-30s');
       var researchText = await callLLM(buildResearchPrompt(theme, els.kwExtra.value.trim()), 0.4);
       brief = extractJSON(researchText);
       state.brief = brief;
@@ -798,9 +830,9 @@ async function runPipeline() {
       setStage('research', 'done');
     }
 
-    /* ② 结构化 */
-    setStage('organize', 'active');
-    var organizeText = await callLLM(buildOrganizePrompt(brief, state.mode === 'article' ? article : null), 0.7);
+    /* ② 结构化（max_tokens=8192：防 hy3 等模型默认输出上限截断长 JSON） */
+    setStage('organize', 'active', '正在生成 ' + els.pageRange.value + ' 页卡片内容，通常 30-90s，请勿关闭页面');
+    var organizeText = await callLLM(buildOrganizePrompt(brief, state.mode === 'article' ? article : null), 0.7, 8192);
     var content = extractJSON(organizeText);
     if (!content.pages || !content.pages.length) throw new Error('AI 返回的内容缺少 pages 字段');
     content.meta = content.meta || {};
