@@ -31,6 +31,8 @@ def main():
     # 2) 独立预览页（全内联）
     with open(RENDERER, "r", encoding="utf-8") as f:
         renderer_src = f.read()
+    # demo 页位于 demo/ 子目录，需把相对路径修正为指向上级 assets/fonts/
+    renderer_src = renderer_src.replace('"assets/fonts/result.css"', '"../assets/fonts/result.css"')
     demo_json = json.dumps(content, ensure_ascii=False)
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -38,7 +40,7 @@ def main():
 <meta charset="UTF-8">
 <title>{theme} · écho 卡片演示</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="../assets/html2canvas.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onerror=function(){{var s2=document.createElement('script');s2.src='https://cdn.staticfile.org/html2canvas/1.4.1/html2canvas.min.js';document.head.appendChild(s2);}};document.head.appendChild(s);"></script>
 <style>
 /* 演示页壳样式 */
 body {{ margin: 0; background-color: #f4f6f9; display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; overflow: hidden; }}
@@ -59,16 +61,12 @@ body {{ margin: 0; background-color: #f4f6f9; display: flex; flex-direction: col
 <div class="preview-area" id="previewArea"></div>
 <script>
 {renderer_src}
-// 注入 écho 设计系统 CSS（由渲染引擎持有）
-var _style = document.createElement('style');
-_style.textContent = XHS.ECHO_CSS;
-document.head.appendChild(_style);
-
-// 渲染演示内容
+// 卡片样式由 renderer.js 自动注入（#echo-card-style）；此处只需渲染演示内容
 var DEMO = {demo_json};
 XHS.render(DEMO, document.getElementById('previewArea'));
 
 async function downloadCards() {{
+  if (document.fonts && document.fonts.ready) {{ try {{ await document.fonts.ready; }} catch (e) {{}} }}
   const wrappers = document.querySelectorAll('.card-wrapper');
   for (let i = 0; i < wrappers.length; i++) {{
     const w = wrappers[i]; const c = w.querySelector('.xhs-card');

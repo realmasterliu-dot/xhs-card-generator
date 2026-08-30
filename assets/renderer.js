@@ -25,15 +25,25 @@
   'use strict';
 
   /* ---------------- écho 设计系统 CSS（原始模板原样保留 + 少量补充） ---------------- */
-  var ECHO_CSS = [
-    'body { margin: 0; background-color: #f4f6f9; display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; overflow: hidden; }',
+
+  /** 品牌字体（江成圆体）—— 已自托管于 assets/fonts/，@import 必须位于样式表最前 */
+  var FONT_IMPORT = '@import url("assets/fonts/result.css");';
+
+  /** 演示页壳样式（独立预览页 / 导出 HTML 使用） */
+  var SHELL_CSS = [
+    'body { margin: 0; background-color: #f4f6f9; display: flex; flex-direction: column; height: 100vh; font-family: "JiangChengYuanTi", -apple-system, sans-serif; overflow: hidden; }',
     '.toolbar { flex-shrink: 0; width: 100%; background: white; padding: 15px 0; box-shadow: 0 4px 15px rgba(0,0,0,0.03); display: flex; justify-content: center; z-index: 100; }',
     '.toolbar button { background: #FF5500; color: white; border: none; padding: 12px 30px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: 0.2s; }',
     '.preview-area { flex: 1; display: flex; flex-direction: row; gap: 40px; padding: 0 50vw; overflow-x: auto; overflow-y: hidden; align-items: center; scroll-snap-type: x mandatory; scroll-padding: 50vw; }',
     '.preview-area::-webkit-scrollbar { height: 8px; }',
-    '.preview-area::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }',
+    '.preview-area::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }'
+  ].join('\n');
+
+  /** 卡片设计系统 CSS（自动注入到任意宿主页面） */
+  var CARD_CSS = [
+    /* @import 改在 index.html head 用 <link> 加载（利于 html2canvas 导出识别 @font-face） */
     '.card-wrapper { width: 435px; height: 581px; flex-shrink: 0; position: relative; scroll-snap-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.08); border-radius: 12px; overflow: hidden; background: #fff; }',
-    '.xhs-card { width: 1242px; height: 1660px; background-color: #FBF9F6; padding: 80px 80px 70px 80px; box-sizing: border-box; position: absolute; top: 0; left: 0; transform-origin: top left; transform: scale(0.35); overflow: hidden; display: flex; flex-direction: column; }',
+    '.xhs-card { width: 1242px; height: 1660px; background-color: #FBF9F6; padding: 80px 80px 70px 80px; box-sizing: border-box; position: absolute; top: 0; left: 0; transform-origin: top left; transform: scale(0.35); overflow: hidden; display: flex; flex-direction: column; font-family: "JiangChengYuanTi", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; font-weight: normal; }',
     '.main-title { font-size: 84px; color: #111; margin: 0 0 35px 0; line-height: 1.3; font-weight: 800; z-index: 2; flex-shrink: 0; }',
     '.highlight { color: #FF5500; font-weight: 700; }',
     '.content-body { flex: 1; display: flex; flex-direction: column; gap: 32px; z-index: 2; margin-top: 0; }',
@@ -66,6 +76,28 @@
     '.card-wrapper.is-exporting .xhs-card { transform: none !important; }'
   ].join('\n');
 
+  /** 完整样式（独立预览页 / 导出 HTML 使用，<link> 已在外层页面加载过则浏览器去重） */
+  var ECHO_CSS = FONT_IMPORT + '\n' + CARD_CSS + '\n' + SHELL_CSS;
+
+  /* ---------------- 自动注入卡片样式 + 品牌字体（幂等） ----------------
+   * 渲染引擎加载即注入，杜绝宿主页面漏引用导致「只有文字无样式」或字体缺失。
+   * @import 必须位于样式表最前，故文本以 FONT_IMPORT 开头。
+   * 若宿主页面已通过 <link> 引入字体（如 index.html 的 #brand-font-css），则跳过字体 @import，
+   * 避免同一字体被注册两遍（248 个面 → 124 个）。 */
+  (function ensureCardCSS() {
+    if (!global.document || !global.document.head) return;
+    if (global.document.getElementById('echo-card-style')) return;
+    var hasFontLink = !!global.document.getElementById('brand-font-css') ||
+      Array.prototype.some.call(global.document.querySelectorAll('link[rel="stylesheet"]'), function (l) {
+        return /result\.css/.test(l.getAttribute('href') || '');
+      });
+    var fontCss = hasFontLink ? '' : (FONT_IMPORT + '\n');
+    var st = global.document.createElement('style');
+    st.id = 'echo-card-style';
+    st.textContent = fontCss + CARD_CSS;
+    global.document.head.appendChild(st);
+  })();
+
   /* ---------------- 工具函数 ---------------- */
 
   function esc(s) {
@@ -73,7 +105,9 @@
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;');
+      .replace(/"/g, '&quot;')
+      /* 白名单：<br> 是内容 JSON 里唯一允许的标签（用于手动断句），转义后还原为真标签 */
+      .replace(/&lt;br\s*\/?&gt;/gi, '<br>');
   }
 
   /** 将 <hl>核心词</hl> 安全转换为 <span class="highlight"> */
@@ -197,12 +231,13 @@
     return '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n' +
       '<meta charset="UTF-8">\n<title>' + esc(title) + '</title>\n' +
       '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">\n' +
-      '<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"><\/script>\n' +
+      '<script src="assets/html2canvas.min.js" onerror="var s=document.createElement(\'script\');s.src=\'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js\';document.head.appendChild(s);"><\/script>\n' +
       '<style>\n' + ECHO_CSS + '\n</style>\n</head>\n<body>\n' +
       '<div class="toolbar"><button onclick="downloadCards()"><i class="fas fa-download"></i> 一键下载全部卡片</button></div>\n' +
       '<div class="preview-area" id="previewArea">\n' + cards + '\n</div>\n' +
       '<script>\n' +
       'async function downloadCards() {\n' +
+      '  if (document.fonts && document.fonts.ready) { try { await document.fonts.ready; } catch (e) {} }\n' +
       '  const wrappers = document.querySelectorAll(".card-wrapper");\n' +
       '  for (let i = 0; i < wrappers.length; i++) {\n' +
       '    const w = wrappers[i]; const c = w.querySelector(".xhs-card");\n' +
