@@ -69,7 +69,8 @@
     '.prose-text { font-size: 38px; color: #333; line-height: 1.7; margin: 0; }',
     '.prose-annotation { border-left: 10px solid #FF5500; background: #fff; padding: 32px 40px; font-size: 36px; color: #666; font-style: italic; border-radius: 0 20px 20px 0; margin-top: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.02); }',
     '.visual-element { position: absolute; bottom: -100px; right: -100px; width: 800px; height: 800px; background: radial-gradient(circle, rgba(255,85,0,0.1) 0%, rgba(250,250,250,0) 70%); border-radius: 50%; z-index: 1; pointer-events: none; }',
-    '.footer-branding { margin-top: auto; border-top: 4px solid rgba(0,0,0,0.06); padding-top: 30px; font-size: 32px; color: #888; display: flex; justify-content: space-between; z-index: 2; font-weight: 500; flex-shrink: 0; }',
+    '.footer-branding { margin-top: auto; border-top: 4px solid rgba(0,0,0,0.06); padding-top: 30px; font-size: 32px; color: #888; display: flex; justify-content: space-between; align-items: center; z-index: 2; font-weight: 500; flex-shrink: 0; min-height: 92px; }',
+    '.footer-branding .footer-logo { height: 60px; width: auto; display: block; }',
     '.footer-right { color: #FF5500; font-weight: 700; }',
     /* 补充：导出放大用 */
     '.card-wrapper.is-exporting { width: 1242px !important; height: 1660px !important; overflow: visible !important; }',
@@ -181,6 +182,16 @@
     }
   }
 
+  /* 左下角 footer：默认品牌「écho」展示 logo 图，自定义品牌名则回退到文字版 */
+  function footerBrandHTML(brand) {
+    var useLogo = !brand || brand === 'écho';
+    if (!useLogo) return '<span>' + esc(brand) + '</span>';
+    var src = (global.ECHO_LOGO_BASE64)
+      ? 'data:image/png;base64,' + global.ECHO_LOGO_BASE64
+      : 'assets/echo-logo-horizontal.png';
+    return '<img class="footer-logo" src="' + src + '" alt="écho">';
+  }
+
   function pageHTML(page, isLast, brand) {
     var bodyClass = isLast ? 'content-body is-centered' : 'content-body';
     var footerRight = isLast
@@ -192,7 +203,7 @@
       '<div class="xhs-card">' +
       title +
       '<div class="' + bodyClass + '">' + blocks + '</div>' +
-      '<div class="footer-branding"><span>' + esc(brand || 'écho') + '</span>' +
+      '<div class="footer-branding">' + footerBrandHTML(brand) +
       '<span class="footer-right">' + footerRight + '</span></div>' +
       '<div class="visual-element"></div>' +
       '</div></div>';
@@ -214,6 +225,7 @@
     var warnings = [];
     pageChars.forEach(function (c, i) {
       if (c > 350) warnings.push({ page: i + 1, type: 'overflow', msg: '第 ' + (i + 1) + ' 页 ' + c + ' 字，超过 350 字上限' });
+      else if (c < 80) warnings.push({ page: i + 1, type: 'underfilled', msg: '第 ' + (i + 1) + ' 页仅 ' + c + ' 字，过少——建议增加 bento 网格或拆解内容填满版面' });
     });
     return { count: pages.length, pageChars: pageChars, total: total, warnings: warnings };
   }
@@ -228,9 +240,13 @@
     var cards = pages.map(function (p, i) {
       return pageHTML(p, i === pages.length - 1, brand);
     }).join('');
+    var logoInline = global.ECHO_LOGO_BASE64
+      ? '<script>window.ECHO_LOGO_BASE64="' + global.ECHO_LOGO_BASE64.replace(/"/g, '\\"') + '";<\/script>\n'
+      : '';
     return '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n' +
       '<meta charset="UTF-8">\n<title>' + esc(title) + '</title>\n' +
       '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">\n' +
+      logoInline +
       '<script src="assets/html2canvas.min.js" onerror="var s=document.createElement(\'script\');s.src=\'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js\';document.head.appendChild(s);"><\/script>\n' +
       '<style>\n' + ECHO_CSS + '\n</style>\n</head>\n<body>\n' +
       '<div class="toolbar"><button onclick="downloadCards()"><i class="fas fa-download"></i> 一键下载全部卡片</button></div>\n' +

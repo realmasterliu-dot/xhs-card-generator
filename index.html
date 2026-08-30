@@ -379,6 +379,7 @@
 </script>
 
 <!-- 渲染引擎 + 演示数据 -->
+<script src="assets/echo-logo-base64.js"></script>
 <script src="assets/renderer.js"></script>
 <script src="demo/demo-data.js"></script>
 
@@ -800,6 +801,41 @@ function buildOrganizePrompt(brief, articleText) {
     '- 反幻觉红线：只使用素材中出现或你高置信的事实；严禁捏造业务数据、客户案例、业绩指标、人名年份',
     '- 品牌「' + els.brandInput.value.trim() + '」与页脚由引擎处理，无需输出',
     '',
+    '【📐 页内容量感知 + 排版武器选择矩阵】（CRITICAL：决定每页是否饱满协调）',
+    '',
+    '单页可用空间（务必在脑里算清）：',
+    '画布 1242×1660px → 扣 padding(80+70=150) + mainTitle(~100+35=135) + footer(~80+30=110) + 各 block 之间 gap(32/项) → 实际可容纳内容高度 ≈ 1260px',
+    '',
+    '各 block 视觉高度估算（生成时按此粗算）：',
+    '  • metric                ≈ 120px（一行大词眼 + 16px 边距）',
+    '  • bento w-full（1行文本） ≈ 200px（标题 ~70 + 文本 ~80 + padding 64）',
+    '  • bento w-half（一对横排）≈ 200px（同上，但横向并排不增加高度）',
+    '  • list item（标题+1-2行） ≈ 160px/项',
+    '  • prose-text 段落          ≈ 65px/行（38px 字号 × line-height 1.7）',
+    '  • prose-annotation（金句） ≈ 120px',
+    '',
+    '【内容密度决策表】（每页生成前必查，按字数选 block 数 + 武器）：',
+    '  字数 < 80     → 至少 4 个 block   武器：metric + 全宽bento + 半宽bento×2（或 list(3项) + annotation + bento）',
+    '  字数 80-150   → 至少 3 个 block   武器：全宽 bento + list(3项) + annotation（或 prose + bento + annotation）',
+    '  字数 150-250  → 2-3 个 block     武器：prose(2段) + list(3项) + annotation',
+    '  字数 250-350  → 2 个 block       武器：prose(2段) + 1个全宽 s-accent bento',
+    '  字数 > 350    → 禁止！必须新建一页',
+    '',
+    '【排版武器选择铁律】（解决"有些页太空"的核心）：',
+    '  • 内容少 → 强制多用 bento 网格填满版面（半宽 bento 横排组合，或全宽 + 半宽混搭）',
+    '  • 内容适中 → bento + list 组合，平衡节奏',
+    '  • 内容多 → 少用 bento（bento 占用空间大），多用 prose + list 撑版面',
+    '  • 每页必须有一个"收口元素"——要么 prose-annotation 金句、要么 s-accent 全宽 bento——否则版面头重脚轻',
+    '  • 同一页避免出现两个相同类型的 block（如两个全宽 bento 挨着）',
+    '  • 若一页只用 1 个 list 兜底 → 视为"严重空页"，必须追加 bento 或 prose 填满',
+    '',
+    '【页内布局自检流程】（每生成一页前，在心里完成以下 4 步）：',
+    '  ① 估算本页正文总字数 X（含 mainTitle）',
+    '  ② 查上面「内容密度决策表」，得出推荐 block 数 N',
+    '  ③ 选排版武器组合，估算总高度 H（用 block 高度表累加 + 32px/项 gap）',
+    '  ④ 如果 H < 1100px → 加 bento 网格或拆解增加内容（宁可文字稍密也别留白）',
+    '     如果 X > 350 或 H > 1300px → 拆分成两页',
+    '',
     '【输出格式】只输出以下结构的合法 JSON，无多余文字、无 Markdown 围栏：',
     '{',
     '  "meta": { "theme": "主题名", "mode": "keyword", "brand": "' + els.brandInput.value.trim() + '" },',
@@ -812,7 +848,18 @@ function buildOrganizePrompt(brief, articleText) {
     '    ] }',
     '  ]',
     '}',
-    '单页 blocks 数量 2-4 个；metric 全篇最多 2 次；list 的 title 8 字内、text 22 字内。'
+    '单页 blocks 数量 2-4 个（密度决策表说 <80 字要 4 个起步）；metric 全篇最多 2 次；list 的 title 8 字内、text 22 字内。',
+    '',
+    '【📋 交付前自检清单】（生成 JSON 前必须在心里逐项核对）',
+    '  □ 反幻觉：最后一页是否捏造了不存在的业务数据？（必须没有）',
+    '  □ 孤字：文字断句是否合理？是否出现了只有一个字/两个字的"孤字行"？',
+    '  □ 单页字数：每页是否严格控制在 350 字以内？',
+    '  □ 首屏冲击：第1页是否有 metric 大词眼 + 全宽 s-accent 橙底盒？',
+    '  □ 标题一致：所有 mainTitle 是否为默认黑色（仅部分 <hl> 高亮）？',
+    '  □ 高亮正确：s-accent 橙底盒内的文字是否纯白色？',
+    '  □ 收口元素：每页是否都有 annotation 或 s-accent bento 兜底？',
+    '  □ 页密度（新增！核心）：每页都通过「内容密度决策表」核验了？最少的页是否已按规则尽量填满（宁可稍密也别留白）？',
+    '  □ 自检循环：对页数最少/看起来最空的那 1-2 页，重新过一遍布局自检流程 → 若 H < 1100px 就调整后再定稿。'
   ].join('\n');
   var user = articleText
     ? '【素材文章】\n' + articleText

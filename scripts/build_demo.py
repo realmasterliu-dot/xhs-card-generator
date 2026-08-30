@@ -33,6 +33,19 @@ def main():
         renderer_src = f.read()
     # demo 页位于 demo/ 子目录，需把相对路径修正为指向上级 assets/fonts/
     renderer_src = renderer_src.replace('"assets/fonts/result.css"', '"../assets/fonts/result.css"')
+    # logo：内联 base64 保证 demo 页单文件即可显示（避免 ../assets/ 路径脆弱性）
+    b64_path = os.path.join(ROOT, "assets", "echo-logo-base64.js")
+    logo_inline = ""
+    if os.path.exists(b64_path):
+        with open(b64_path, "r", encoding="utf-8") as f:
+            # 原文件是 window.ECHO_LOGO_BASE64="..."; 形式，转成可在 HTML <script> 中直接嵌入的赋值
+            raw = f.read()
+            # 提取出赋值语句（去掉注释行）
+            for line in raw.splitlines():
+                s = line.strip()
+                if s.startswith("window.ECHO_LOGO_BASE64="):
+                    logo_inline = "<script>" + s + "</script>\n"
+                    break
     demo_json = json.dumps(content, ensure_ascii=False)
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -40,7 +53,7 @@ def main():
 <meta charset="UTF-8">
 <title>{theme} · écho 卡片演示</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-<script src="../assets/html2canvas.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onerror=function(){{var s2=document.createElement('script');s2.src='https://cdn.staticfile.org/html2canvas/1.4.1/html2canvas.min.js';document.head.appendChild(s2);}};document.head.appendChild(s);"></script>
+{logo_inline}<script src="../assets/html2canvas.min.js" onerror="var s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';s.onerror=function(){{var s2=document.createElement('script');s2.src='https://cdn.staticfile.org/html2canvas/1.4.1/html2canvas.min.js';document.head.appendChild(s2);}};document.head.appendChild(s);"></script>
 <style>
 /* 演示页壳样式 */
 body {{ margin: 0; background-color: #f4f6f9; display: flex; flex-direction: column; height: 100vh; font-family: -apple-system, sans-serif; overflow: hidden; }}
