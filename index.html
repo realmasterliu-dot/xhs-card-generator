@@ -484,7 +484,7 @@ function detectConn(cb) {
 }
 
 /* ================= LLM 调用 ================= */
-function callLLM(messages, temperature) {
+function callLLM(messages, temperature, maxTokens) {
   return new Promise(function (resolve, reject) {
     var base = els.baseUrlInput.value.trim().replace(/\/+$/, '');
     var model = els.modelInput.value.trim();
@@ -496,10 +496,12 @@ function callLLM(messages, temperature) {
     var directBody = {
       model: model, messages: messages, temperature: temperature == null ? 0.7 : temperature
     };
+    if (maxTokens) directBody.max_tokens = maxTokens;
     if (els.providerSel.value !== 'custom') directBody.response_format = { type: 'json_object' };
 
     var ctrl = new AbortController();
     var timer = setTimeout(function () { ctrl.abort(); }, 150000);
+    var attempt = 0;
 
     var doFetch = function (url, body, retriedJsonFormat) {
       fetch(url, {
@@ -531,7 +533,17 @@ function callLLM(messages, temperature) {
           return;
         }
         var text = res.json && res.json.choices && res.json.choices[0] && res.json.choices[0].message && res.json.choices[0].message.content;
-        if (!text) { reject(new Error('接口返回为空（可能是余额不足或内容被过滤），原始返回：' + String(res.raw).slice(0, 120))); return; }
+        if (!text) {
+          /* 服务商偶发返回空内容（腾讯混元 hy3 实测存在），自动重试一次 */
+          if (attempt < 2) {
+            attempt++;
+            clearTimeout(timer);
+            timer = setTimeout(function () { ctrl.abort(); }, 150000);
+            doFetch(url, body, retriedJsonFormat);
+            return;
+          }
+          reject(new Error('接口连续返回空（可能是模型超长输出被截断或服务商限流）。建议：① 稍后再试 ② 缩小页数/字数 ③ 换 DeepSeek 模型。原始返回：' + String(res.raw).slice(0, 120))); return;
+        }
         resolve(text);
       }).catch(function (e) {
         clearTimeout(timer);
@@ -878,9 +890,9 @@ async function runPipeline() {
       setStage('research', 'done');
     }
 
-    /* ② 结构化 */
+    /* ② 结构化（max_tokens=8192：防 hy3 等模型默认输出上限截断长 JSON，截断会导致返回空内容） */
     setStage('organize', 'active');
-    var organizeText = await callLLM(buildOrganizePrompt(brief, state.mode === 'article' ? article : null), 0.7);
+    var organizeText = await callLLM(buildOrganizePrompt(brief, state.mode === 'article' ? article : null), 0.7, 8192);
     var content = extractJSON(organizeText);
     if (!content.pages || !content.pages.length) throw new Error('AI 返回的内容缺少 pages 字段');
     content.meta = content.meta || {};
