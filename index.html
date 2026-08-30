@@ -274,7 +274,7 @@
             <option value="custom">自定义（OpenAI 兼容）</option>
           </select>
         </div>
-        <div><label>模型</label><input type="text" id="modelInput" value="deepseek-chat"></div>
+        <div><label>模型</label><input type="text" id="modelInput" value="deepseek-v4-flash"></div>
       </div>
       <label>Base URL</label>
       <input type="text" id="baseUrlInput" value="https://api.deepseek.com/v1">
@@ -406,7 +406,7 @@ var store = {
 
 /* ================= 服务商预设 ================= */
 var PROVIDERS = {
-  deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-chat', label: 'DeepSeek' },
+  deepseek: { base: 'https://api.deepseek.com/v1', model: 'deepseek-v4-flash', label: 'DeepSeek' },
   openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o-mini', label: 'OpenAI' },
   custom: { base: '', model: '', label: '自定义' }
 };
@@ -528,7 +528,11 @@ function callLLM(messages, temperature, maxTokens) {
           var msg = (res.json && res.json.error && (res.json.error.message || res.json.error.type)) || res.raw || ('HTTP ' + res.status);
           if (res.status === 401 || res.status === 403) msg = 'API Key 无效或无权限（' + res.status + '），请检查 Key 是否复制完整、是否有余额';
           else if (res.status === 404) msg = '接口路径 404：Base URL 可能缺少 /v1 或路径不对（当前 ' + base + '）';
-          else if (res.status === 400) msg = '请求被拒（400）：模型名可能不对（' + model + '）或服务商不支持 response_format 参数';
+          else if (res.status === 400) {
+            /* 优先显示服务端真实报错（如 DeepSeek 的 "Prompt must contain the word 'json'"），便于定位 */
+            var srvErr = (res.json && res.json.error && (res.json.error.message || res.json.error.type)) || '';
+            msg = '请求被拒（400）：' + (srvErr || ('模型名可能不对（' + model + '）或服务商不支持 response_format 参数'));
+          }
           reject(new Error('接口返回错误：' + String(msg).slice(0, 200)));
           return;
         }
@@ -630,7 +634,8 @@ function testConnection() {
       clearTimeout(timer);
       var cors = r.headers.get('access-control-allow-origin');
       if (r.ok || r.status < 500) {
-        lines.push('✓ 网络可达，服务商已响应（HTTP ' + r.status + '）' + (cors ? '，CORS 允许浏览器直连' : '，但未返回 CORS 头（若后续失败需用代理/本地服务）'));
+        /* fetch 能拿到响应 = 浏览器 CORS 已放行；若 CORS 被拦会走 catch 分支 */
+        lines.push('✓ 网络可达，服务商已响应（HTTP ' + r.status + '）→ 浏览器可直连（CORS 正常）');
       } else {
         lines.push('✗ 服务商返回 HTTP ' + r.status + '（网络可达，但服务端异常）'); bad = true;
       }
@@ -668,8 +673,10 @@ function testConnection() {
   });
 
   probe.then(function () {
-    /* ③ Key + 模型 验证：若有代理走代理，否则直连 */
-    var body = { model: model, messages: [{ role: 'user', content: 'ping' }], max_tokens: 3 };
+    /* ③ Key + 模型 验证：若有代理走代理，否则直连
+       注意：DeepSeek 等服务商要求 JSON 模式（response_format=json_object）下 prompt 必须含 "json" 字样，
+       否则返回 400。因此探测消息必须带 json 字样，否则会误报模型名错误。 */
+    var body = { model: model, messages: [{ role: 'user', content: 'Reply with JSON only, like {"ok": true}' }], max_tokens: 50 };
     if (els.providerSel.value !== 'custom') body.response_format = { type: 'json_object' };
 
     var check = function (promise) {
@@ -677,7 +684,12 @@ function testConnection() {
         if (r.ok) lines.push('✓ API Key 有效，模型「' + model + '」可用');
         else if (r.status === 401 || r.status === 403) { lines.push('✗ API Key 无效或无权限（' + r.status + '）→ 检查 Key 是否复制完整、有无空格、账户是否有余额'); bad = true; }
         else if (r.status === 404) { lines.push('✗ 路径 404 → Base URL 可能少了 /v1，例如应为 https://api.deepseek.com/v1'); bad = true; }
-        else if (r.status === 400) { lines.push('✗ HTTP 400 → 模型名可能不对（' + model + '）或服务商不支持 response_format'); bad = true; }
+        else if (r.status === 400) {
+          var srv = (r.json && r.json.error && (r.json.error.message || r.json.error.type)) || '';
+          if (srv) lines.push('✗ HTTP 400 → 服务商返回：' + srv);
+          else lines.push('✗ HTTP 400 → 模型名可能不对（' + model + '）或服务商不支持 response_format');
+          bad = true;
+        }
         else { lines.push('⚠ 返回 HTTP ' + r.status + '（服务商异常）'); bad = true; }
         done();
       }).catch(function (e) {
@@ -691,7 +703,7 @@ function testConnection() {
       fetch(proxy, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseUrl: base, apiKey: key, model: model, messages: [{ role: 'user', content: 'ping' }], temperature: 0.3 })
+        body: JSON.stringify({ baseUrl: base, apiKey: key, model: model, messages: [{ role: 'user', content: 'Reply with JSON only, like {"ok": true}' }], temperature: 0.3 })
       }).then(function (r) { return r.json(); }).then(function (j) {
         if (j.ok) lines.push('✓ 代理转发成功，API Key 有效，模型「' + model + '」可用');
         else { lines.push('✗ 代理返回错误：' + ((j.error && j.error.message) || 'unknown')); bad = true; }
@@ -704,7 +716,12 @@ function testConnection() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
         body: JSON.stringify(body)
-      }).then(function (r) { return { ok: r.ok, status: r.status }; }));
+      }).then(function (r) {
+        return r.text().then(function (t) {
+          var j = null; try { j = JSON.parse(t); } catch (e) { j = null; }
+          return { ok: r.ok, status: r.status, json: j, raw: t };
+        });
+      }));
     }
   });
 }

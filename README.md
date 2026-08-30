@@ -80,7 +80,7 @@ python3 server.py
 
 ## API 配置
 
-默认服务商：**DeepSeek**（`deepseek-chat` 模型，性价比最高的中文 LLM）。
+默认服务商：**DeepSeek**（`deepseek-v4-flash` 模型，性价比最高的中文 LLM；旧名 `deepseek-chat` 已于 2026-07-24 弃用）。
 - 获取 Key：<https://platform.deepseek.com>
 - 工具界面在「AI 接口配置」处填入即可，**密钥仅保存在本机浏览器 localStorage**
 
